@@ -8,7 +8,7 @@ const options: GoBuilderOptions = {
 
 const builder = new GoBuilder(options);
 
-for (let i = 0; i < 1; i++) {
+for (let i = 0; i < 1_000; i++) {
   const packageNode = builder.CreatePackageNode("main");
   const packageId = builder.SetNode(packageNode);
 
@@ -25,25 +25,27 @@ for (let i = 0; i < 1; i++) {
 
   const myFuncType = Func("test");
 
-  const varValueNode = builder.CreateVarValueNode("test", {
-    type: Kind.INT,
-    id: "",
-  }, "67")
-  const varValueId = builder.SetNode(varValueNode)
-  const varNode = builder.CreateVarNode(varValueId)
-  const varId = builder.SetNode(varNode)
+  const varValueNode = builder.CreateVarValueNode(
+    "test",
+    {
+      type: Kind.INT,
+      id: "",
+    },
+    "67"
+  );
+  const varValueId = builder.SetNode(varValueNode);
+  const varNode = builder.CreateVarNode(varValueId);
+  const varId = builder.SetNode(varNode);
 
-  const myFunc: FuncDef = {
+  /* const myFunc: FuncDef = {
     type: myFuncType,
-    body: [
-      varId,
-    ]
-  }
+    body: [varId],
+  };
 
-  const funcNode = builder.CreateFuncNode(myFunc)
-  const funcId = builder.SetNode(funcNode)
+  const funcNode = builder.CreateFuncNode(myFunc);
+  const funcId = builder.SetNode(funcNode); */
 
-  builder.ConnectNodes(importId, funcId)
+  builder.ConnectNodes(importId, varId);
 }
 
 const myStruct = new Struct()
@@ -53,19 +55,25 @@ const myStruct = new Struct()
 
 const test: Kind = Kind.ARRAY;
 
-const myInterface: TypeDef = new Interface()
-  .Name("myInterface")
-  .AsDefinition();
+const myInterface: TypeDef = new Interface().Name("myInterface").AsDefinition();
+
+function formatBytes(size: number) {
+  if (size === 0) return "0 B";
+
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(size) / Math.log(k));
+
+  return `${(size / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+}
 
 {
   (async () => {
     const now = Date.now();
-    const output = await builder.Build();
+    const output = builder.Export();
     console.log(`Build time: ${Date.now() - now}ms`);
     console.log(output);
-    console.log(
-      `size: ${(output.length / 1024 / 1024).toPrecision(4)}Mib (${(output.length / 1024).toPrecision(2)}Kib)`
-    );
+    console.log(`size: ${formatBytes(output.length)}`);
     let { signal } = new AbortController();
     writeFile("nodes.opt", output, { signal }, (err) => {
       if (!err) return;
