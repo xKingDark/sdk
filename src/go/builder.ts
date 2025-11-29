@@ -16,7 +16,7 @@ export interface NodeValue {
 }
 
 export interface Node {
-  opcode: number;
+  opcode: tree.Opcode;
   parent?: NodeId;
   next?: NodeId;
   flags: number;
@@ -38,7 +38,7 @@ export interface FuncDef {
 
 export class GoBuilder {
   private builder: fb.Builder;
-  private stringTable: Map<number, string> = new Map();
+  private stringlut: Map<number, string> = new Map();
   private strNextId = 1;
   private nodes: Map<bigint, [Node, fb.Offset]> = new Map();
   private nextId: bigint = BigInt(0);
@@ -46,8 +46,6 @@ export class GoBuilder {
   constructor(private options: GoBuilderOptions) {
     const defaultSize = 1024;
     this.builder = new fb.Builder(options.size || defaultSize);
-
-    this.stringTable.set(0, "");
   }
 
   private buildNode(node: Node): fb.Offset {
@@ -95,33 +93,34 @@ export class GoBuilder {
         return;
       }
       //! Implement
-      /* for (const n of ) { 
+      for (const n of node[0].fields || []) {
         if (n.flags & tree.ValueFlag.Pointer) continue;
 
-        const success = this.nodes.delete(n.value as number);
+        const success = this.nodes.delete(n.value as bigint);
         if (!success)
           console.warn(`Failed to delete node part of ${id}: ${n.value}`);
-      } */
+      }
     }
 
     this.nodes.delete(id);
   }
 
-  /* public UpdateNodeField(id: bigint, index: number, field: NodeValue) {
-    if (index < 0) {
+  public UpdateNodeField(id: bigint, index: number, field: NodeValue) {
+    const node = this.nodes.get(id);
+    if (!node || !node[0].fields) {
+      console.error(`Invalid node ${id}.`);
+      return;
+    }
+
+    if (index < 0 || index > node[0].fields.length) {
       console.error(`Invalid index of ${index}.`);
       return;
     }
-    const node = this.nodes.get(id);
-    if (node) {
-      if (node.fields && index < node.fields.length) {
-        node.fields[index] = field;
-      } else
-        console.error(
-          `Node does not have any fields or index is greater than the amount of allocated fields.`
-        );
-    } else console.error(`Could not find node with ${id}.`);
-  } */
+
+    node[0].fields[index] = field;
+    const nodeOffset = this.buildNode(node[0]);
+    this.nodes.set(id, [node[0], nodeOffset]);
+  }
 
   public ConnectNodes(parent: bigint, child: bigint) {
     const targetNode = this.nodes.get(parent);
@@ -138,8 +137,10 @@ export class GoBuilder {
 
     targetNode[0].next = child;
     sourceNode[0].parent = parent;
-    const nodeOffset = this.buildNode(sourceNode[0]);
-    this.nodes.set(child, [sourceNode[0], nodeOffset]);
+    const targetNodeOffset = this.buildNode(targetNode[0]);
+    const sourceNodeOffset = this.buildNode(sourceNode[0]);
+    this.nodes.set(parent, [targetNode[0], targetNodeOffset]);
+    this.nodes.set(child, [sourceNode[0], sourceNodeOffset]);
   }
 
   public CreateNode(opcode: number, flags: number): Node {
@@ -301,19 +302,29 @@ export class GoBuilder {
 
   public Print(): void {
     this.nodes.forEach((v, k) => {
-      console.log(`${k} -> ${JSON.stringify(v)}`);
+      console.log(
+        `${k} (${v[1]}) -> ${JSON.stringify(v[0], (_, v) => (typeof v === "bigint" ? v.toString() : v))}`
+      );
     });
   }
 
-  private GetString(s: string): number {
-    for (const [n, v] of this.stringTable) {
-      if (v !== s) {
-        continue;
-      }
-      return n;
+  private HashString(s: string): number {
+    // cite: https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+    let hash = 0x811c9dc5; // FNV-1a 32-bit offset basis
+
+    for (let i = 0; i < s.length; i++) {
+      hash ^= s.charCodeAt(i);
+      hash = (hash * 0x01000193) >>> 0; // FNV prime and force 32-bit
     }
-    this.stringTable.set(++this.strNextId, s);
-    return this.strNextId;
+
+    return hash >>> 0;
+  }
+
+  private SetString(s: string): number {
+    const hash = this.HashString(s);
+
+    this.stringlut.set(hash, s);
+    return hash;
   }
 
   private CreateType1(node: Node): fb.Offset {
@@ -321,11 +332,11 @@ export class GoBuilder {
     if (node.fields) {
       for (const value of node.fields) {
         tree.NodeValue.startNodeValue(this.builder);
-        //tree.NodeValue.addType(this.builder, this.GetString(value.type || ""));
+        //tree.NodeValue.addType(this.builder, this.GetString(value.type || "")); //! Implement types
         if (typeof value.value == "string")
           tree.NodeValue.addValue(
             this.builder,
-            BigInt(this.GetString(value.value || ""))
+            BigInt(this.SetString(value.value || ""))
           );
         else tree.NodeValue.addValue(this.builder, BigInt(value.value || 0));
 
@@ -337,7 +348,7 @@ export class GoBuilder {
       tree.Type1.addFields(this.builder, fieldsVector);
     }
     tree.Type1.startType1(this.builder);
-    tree.Type1.addId(this.builder, this.GetString(node.id || "")); //! This can be optimized
+    tree.Type1.addId(this.builder, this.SetString(node.id || ""));
 
     return tree.Type1.endType1(this.builder);
   }
@@ -355,7 +366,7 @@ export class GoBuilder {
       if (typeof node.left.value == "string")
         tree.NodeValue.addValue(
           this.builder,
-          BigInt(this.GetString(node.left.value || ""))
+          BigInt(this.SetString(node.left.value || ""))
         );
       else tree.NodeValue.addValue(this.builder, BigInt(node.left.value || 0));
 
@@ -372,7 +383,7 @@ export class GoBuilder {
       if (typeof node.right.value == "string")
         tree.NodeValue.addValue(
           this.builder,
-          BigInt(this.GetString(node.right.value || ""))
+          BigInt(this.SetString(node.right.value || ""))
         );
       else tree.NodeValue.addValue(this.builder, BigInt(node.right.value || 0));
 
@@ -397,7 +408,7 @@ export class GoBuilder {
       if (typeof node.value.value == "string")
         tree.NodeValue.addValue(
           this.builder,
-          BigInt(this.GetString(node.value.value || ""))
+          BigInt(this.SetString(node.value.value || ""))
         );
       else tree.NodeValue.addValue(this.builder, BigInt(node.value.value || 0));
 
@@ -433,38 +444,18 @@ export class GoBuilder {
     return this.builder.asUint8Array();
   }
 
+  public Clear() {
+    this.builder.clear();
+    this.nodes.clear();
+    this.nextId = BigInt(0);
+  }
+
   public async Rebuild(flags: number = 0): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
       this.builder.clear();
-      const nodes = new Array<fb.Offset>(this.nodes.size);
+      const nodes: fb.Offset[] = [];
       for (const [id, [node, offset]] of this.nodes) {
-        let nodeType: number = 0;
-        let nodeContentOffset: fb.Offset = 0;
-        switch (node.flags) {
-          case tree.Flag.NodeType1:
-            nodeType = tree.NodeUnion.Type1;
-            nodeContentOffset = this.CreateType1(node);
-            break;
-          case tree.Flag.NodeType2:
-            nodeType = tree.NodeUnion.Type2;
-            nodeContentOffset = this.CreateType2(node);
-            break;
-          case tree.Flag.NodeType3:
-            nodeType = tree.NodeUnion.Type3;
-            nodeContentOffset = this.CreateType3(node);
-            break;
-          default:
-            nodeType = tree.NodeUnion.NONE;
-            break;
-        }
-        tree.Node.startNode(this.builder);
-        tree.Node.addOpcode(this.builder, node.opcode);
-        tree.Node.addParent(this.builder, BigInt(node.parent || 0));
-        tree.Node.addNext(this.builder, BigInt(node.next || 0));
-        tree.Node.addFlags(this.builder, node.flags);
-        tree.Node.addNodeType(this.builder, nodeType);
-        tree.Node.addNode(this.builder, nodeContentOffset);
-        const nodeOffset = tree.Node.endNode(this.builder);
+        const nodeOffset = this.buildNode(node);
         nodes.push(nodeOffset);
       }
       const nodesVector = tree.Program.createNodesVector(this.builder, nodes);

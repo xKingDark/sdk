@@ -4,15 +4,30 @@ import { Func, Kind, Struct, Interface, TypeDef } from "./go/types";
 
 const options: GoBuilderOptions = {
   name: "My First Go Project",
+  size: 1,
 };
 
 const builder = new GoBuilder(options);
 
-for (let i = 0; i < 1_000; i++) {
-  const packageNode = builder.CreatePackageNode("main");
-  const packageId = builder.SetNode(packageNode);
+let id: bigint = BigInt(0);
 
-  const fmtNode = builder.CreateImportValueNode("fmt");
+for (let i = 0; i < 10_700_000; i++) {
+  const packageNode = builder.CreatePackageNode("main");
+  if (i > 10_700_000) console.log(i);
+  const packageId = builder.SetNode(packageNode);
+  //console.log("created package");
+
+  if (id !== packageId) builder.ConnectNodes(packageId, id);
+
+  id = packageId;
+
+  /* const importNode = builder.CreateImportNode();
+  const importId = builder.SetNode(importNode, BigInt(67));
+  console.log("created import");
+  builder.ConnectNodes(packageId, importId);
+  console.log("joined them together"); */
+
+  /* const fmtNode = builder.CreateImportValueNode("fmt");
   const fmt = builder.SetNode(fmtNode);
 
   const strconvNode = builder.CreateImportValueNode("strconv");
@@ -35,7 +50,7 @@ for (let i = 0; i < 1_000; i++) {
   );
   const varValueId = builder.SetNode(varValueNode);
   const varNode = builder.CreateVarNode(varValueId);
-  const varId = builder.SetNode(varNode);
+  const varId = builder.SetNode(varNode); */
 
   /* const myFunc: FuncDef = {
     type: myFuncType,
@@ -45,7 +60,7 @@ for (let i = 0; i < 1_000; i++) {
   const funcNode = builder.CreateFuncNode(myFunc);
   const funcId = builder.SetNode(funcNode); */
 
-  builder.ConnectNodes(importId, varId);
+  //builder.ConnectNodes(importId, varId);
 }
 
 const myStruct = new Struct()
@@ -69,6 +84,7 @@ function formatBytes(size: number) {
 
 {
   (async () => {
+    //builder.Print();
     const now = Date.now();
     const output = builder.Export();
     console.log(`Build time: ${Date.now() - now}ms`);
