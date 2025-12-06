@@ -4,25 +4,25 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { NodeValue } from '../go/node-value.js';
+import { NodeValue } from '../golang/node-value.js';
 
 
-export class Type2 {
+export class BinaryNode {
   bb: flatbuffers.ByteBuffer|null = null;
   bb_pos = 0;
-  __init(i:number, bb:flatbuffers.ByteBuffer):Type2 {
+  __init(i:number, bb:flatbuffers.ByteBuffer):BinaryNode {
   this.bb_pos = i;
   this.bb = bb;
   return this;
 }
 
-static getRootAsType2(bb:flatbuffers.ByteBuffer, obj?:Type2):Type2 {
-  return (obj || new Type2()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
+static getRootAsBinaryNode(bb:flatbuffers.ByteBuffer, obj?:BinaryNode):BinaryNode {
+  return (obj || new BinaryNode()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
-static getSizePrefixedRootAsType2(bb:flatbuffers.ByteBuffer, obj?:Type2):Type2 {
+static getSizePrefixedRootAsBinaryNode(bb:flatbuffers.ByteBuffer, obj?:BinaryNode):BinaryNode {
   bb.setPosition(bb.position() + flatbuffers.SIZE_PREFIX_LENGTH);
-  return (obj || new Type2()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
+  return (obj || new BinaryNode()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
 left(obj?:NodeValue):NodeValue|null {
@@ -35,7 +35,7 @@ right(obj?:NodeValue):NodeValue|null {
   return offset ? (obj || new NodeValue()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
-static startType2(builder:flatbuffers.Builder) {
+static startBinaryNode(builder:flatbuffers.Builder) {
   builder.startObject(2);
 }
 
@@ -47,7 +47,7 @@ static addRight(builder:flatbuffers.Builder, rightOffset:flatbuffers.Offset) {
   builder.addFieldOffset(1, rightOffset, 0);
 }
 
-static endType2(builder:flatbuffers.Builder):flatbuffers.Offset {
+static endBinaryNode(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }

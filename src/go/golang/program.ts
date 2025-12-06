@@ -4,7 +4,9 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { Node } from '../go/node.js';
+import { Node } from '../golang/node.js';
+import { StringEntry } from '../golang/string-entry.js';
+import { TypeEntry } from '../golang/type-entry.js';
 
 
 export class Program {
@@ -35,41 +37,61 @@ nodesLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
+lut(index: number, obj?:StringEntry):StringEntry|null {
+  const offset = this.bb!.__offset(this.bb_pos, 6);
+  return offset ? (obj || new StringEntry()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
+}
+
+lutLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 6);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
+types(index: number, obj?:TypeEntry):TypeEntry|null {
+  const offset = this.bb!.__offset(this.bb_pos, 8);
+  return offset ? (obj || new TypeEntry()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
+}
+
+typesLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 8);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
 name():string|null
 name(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
 name(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 6);
+  const offset = this.bb!.__offset(this.bb_pos, 10);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
 schver():string|null
 schver(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
 schver(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 8);
+  const offset = this.bb!.__offset(this.bb_pos, 12);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
 wailsver():string|null
 wailsver(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
 wailsver(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 10);
+  const offset = this.bb!.__offset(this.bb_pos, 14);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
 version():string|null
 version(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
 version(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 12);
+  const offset = this.bb!.__offset(this.bb_pos, 16);
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
 flags():number {
-  const offset = this.bb!.__offset(this.bb_pos, 14);
+  const offset = this.bb!.__offset(this.bb_pos, 18);
   return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
 }
 
 static startProgram(builder:flatbuffers.Builder) {
-  builder.startObject(6);
+  builder.startObject(8);
 }
 
 static addNodes(builder:flatbuffers.Builder, nodesOffset:flatbuffers.Offset) {
@@ -88,24 +110,56 @@ static startNodesVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
+static addLut(builder:flatbuffers.Builder, lutOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(1, lutOffset, 0);
+}
+
+static createLutVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startLutVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
+}
+
+static addTypes(builder:flatbuffers.Builder, typesOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(2, typesOffset, 0);
+}
+
+static createTypesVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startTypesVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
+}
+
 static addName(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(1, nameOffset, 0);
+  builder.addFieldOffset(3, nameOffset, 0);
 }
 
 static addSchver(builder:flatbuffers.Builder, schverOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(2, schverOffset, 0);
+  builder.addFieldOffset(4, schverOffset, 0);
 }
 
 static addWailsver(builder:flatbuffers.Builder, wailsverOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(3, wailsverOffset, 0);
+  builder.addFieldOffset(5, wailsverOffset, 0);
 }
 
 static addVersion(builder:flatbuffers.Builder, versionOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(4, versionOffset, 0);
+  builder.addFieldOffset(6, versionOffset, 0);
 }
 
 static addFlags(builder:flatbuffers.Builder, flags:number) {
-  builder.addFieldInt32(5, flags, 0);
+  builder.addFieldInt32(7, flags, 0);
 }
 
 static endProgram(builder:flatbuffers.Builder):flatbuffers.Offset {
@@ -121,9 +175,11 @@ static finishSizePrefixedProgramBuffer(builder:flatbuffers.Builder, offset:flatb
   builder.finish(offset, undefined, true);
 }
 
-static createProgram(builder:flatbuffers.Builder, nodesOffset:flatbuffers.Offset, nameOffset:flatbuffers.Offset, schverOffset:flatbuffers.Offset, wailsverOffset:flatbuffers.Offset, versionOffset:flatbuffers.Offset, flags:number):flatbuffers.Offset {
+static createProgram(builder:flatbuffers.Builder, nodesOffset:flatbuffers.Offset, lutOffset:flatbuffers.Offset, typesOffset:flatbuffers.Offset, nameOffset:flatbuffers.Offset, schverOffset:flatbuffers.Offset, wailsverOffset:flatbuffers.Offset, versionOffset:flatbuffers.Offset, flags:number):flatbuffers.Offset {
   Program.startProgram(builder);
   Program.addNodes(builder, nodesOffset);
+  Program.addLut(builder, lutOffset);
+  Program.addTypes(builder, typesOffset);
   Program.addName(builder, nameOffset);
   Program.addSchver(builder, schverOffset);
   Program.addWailsver(builder, wailsverOffset);

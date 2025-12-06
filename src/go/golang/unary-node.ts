@@ -4,25 +4,25 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { NodeValue } from '../go/node-value.js';
+import { NodeValue } from '../golang/node-value.js';
 
 
-export class Type3 {
+export class UnaryNode {
   bb: flatbuffers.ByteBuffer|null = null;
   bb_pos = 0;
-  __init(i:number, bb:flatbuffers.ByteBuffer):Type3 {
+  __init(i:number, bb:flatbuffers.ByteBuffer):UnaryNode {
   this.bb_pos = i;
   this.bb = bb;
   return this;
 }
 
-static getRootAsType3(bb:flatbuffers.ByteBuffer, obj?:Type3):Type3 {
-  return (obj || new Type3()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
+static getRootAsUnaryNode(bb:flatbuffers.ByteBuffer, obj?:UnaryNode):UnaryNode {
+  return (obj || new UnaryNode()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
-static getSizePrefixedRootAsType3(bb:flatbuffers.ByteBuffer, obj?:Type3):Type3 {
+static getSizePrefixedRootAsUnaryNode(bb:flatbuffers.ByteBuffer, obj?:UnaryNode):UnaryNode {
   bb.setPosition(bb.position() + flatbuffers.SIZE_PREFIX_LENGTH);
-  return (obj || new Type3()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
+  return (obj || new UnaryNode()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
 value(obj?:NodeValue):NodeValue|null {
@@ -30,7 +30,7 @@ value(obj?:NodeValue):NodeValue|null {
   return offset ? (obj || new NodeValue()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
-static startType3(builder:flatbuffers.Builder) {
+static startUnaryNode(builder:flatbuffers.Builder) {
   builder.startObject(1);
 }
 
@@ -38,14 +38,14 @@ static addValue(builder:flatbuffers.Builder, valueOffset:flatbuffers.Offset) {
   builder.addFieldOffset(0, valueOffset, 0);
 }
 
-static endType3(builder:flatbuffers.Builder):flatbuffers.Offset {
+static endUnaryNode(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createType3(builder:flatbuffers.Builder, valueOffset:flatbuffers.Offset):flatbuffers.Offset {
-  Type3.startType3(builder);
-  Type3.addValue(builder, valueOffset);
-  return Type3.endType3(builder);
+static createUnaryNode(builder:flatbuffers.Builder, valueOffset:flatbuffers.Offset):flatbuffers.Offset {
+  UnaryNode.startUnaryNode(builder);
+  UnaryNode.addValue(builder, valueOffset);
+  return UnaryNode.endUnaryNode(builder);
 }
 }

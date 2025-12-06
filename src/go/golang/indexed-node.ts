@@ -4,25 +4,25 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { NodeValue } from '../go/node-value.js';
+import { NodeValue } from '../golang/node-value.js';
 
 
-export class Type1 {
+export class IndexedNode {
   bb: flatbuffers.ByteBuffer|null = null;
   bb_pos = 0;
-  __init(i:number, bb:flatbuffers.ByteBuffer):Type1 {
+  __init(i:number, bb:flatbuffers.ByteBuffer):IndexedNode {
   this.bb_pos = i;
   this.bb = bb;
   return this;
 }
 
-static getRootAsType1(bb:flatbuffers.ByteBuffer, obj?:Type1):Type1 {
-  return (obj || new Type1()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
+static getRootAsIndexedNode(bb:flatbuffers.ByteBuffer, obj?:IndexedNode):IndexedNode {
+  return (obj || new IndexedNode()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
-static getSizePrefixedRootAsType1(bb:flatbuffers.ByteBuffer, obj?:Type1):Type1 {
+static getSizePrefixedRootAsIndexedNode(bb:flatbuffers.ByteBuffer, obj?:IndexedNode):IndexedNode {
   bb.setPosition(bb.position() + flatbuffers.SIZE_PREFIX_LENGTH);
-  return (obj || new Type1()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
+  return (obj || new IndexedNode()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
 id():number {
@@ -40,7 +40,7 @@ fieldsLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
-static startType1(builder:flatbuffers.Builder) {
+static startIndexedNode(builder:flatbuffers.Builder) {
   builder.startObject(2);
 }
 
@@ -64,15 +64,15 @@ static startFieldsVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
-static endType1(builder:flatbuffers.Builder):flatbuffers.Offset {
+static endIndexedNode(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createType1(builder:flatbuffers.Builder, id:number, fieldsOffset:flatbuffers.Offset):flatbuffers.Offset {
-  Type1.startType1(builder);
-  Type1.addId(builder, id);
-  Type1.addFields(builder, fieldsOffset);
-  return Type1.endType1(builder);
+static createIndexedNode(builder:flatbuffers.Builder, id:number, fieldsOffset:flatbuffers.Offset):flatbuffers.Offset {
+  IndexedNode.startIndexedNode(builder);
+  IndexedNode.addId(builder, id);
+  IndexedNode.addFields(builder, fieldsOffset);
+  return IndexedNode.endIndexedNode(builder);
 }
 }

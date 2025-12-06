@@ -1,5 +1,5 @@
 import * as fb from "flatbuffers";
-import * as tree from "./go";
+import * as schema from "./golang";
 import { Type, TypeDef } from "./types";
 
 export type NodeId = bigint;
@@ -16,32 +16,30 @@ export interface NodeValue {
 }
 
 export interface Node {
-  opcode: tree.Opcode;
+  opcode: schema.Opcode;
   parent?: NodeId;
   next?: NodeId;
   flags: number;
-  // Type 1
+  // Indexed Node
   id?: string;
   fields?: NodeValue[];
-  // Type 2
+  // Binary Node
   left?: NodeValue;
   right?: NodeValue;
-  // Type 3
+  // Unary Node
   value?: NodeValue;
 }
 
 export interface FuncDef {
   type: TypeDef;
-  params?: number[]; // Input parameters
-  body?: number[]; // Array of node id
+  params?: NodeId[]; // Input parameters
+  body?: NodeId[]; // Array of node id
 }
 
 export class GoBuilder {
   private builder: fb.Builder;
   private stringlut: Map<number, string> = new Map();
-  private strNextId = 1;
   private nodes: Map<bigint, [Node, fb.Offset]> = new Map();
-  private nextId: bigint = BigInt(0);
 
   constructor(private options: GoBuilderOptions) {
     const defaultSize = 1024;
@@ -52,34 +50,35 @@ export class GoBuilder {
     let nodeType: number = 0;
     let nodeContentOffset: fb.Offset = 0;
     switch (node.flags) {
-      case tree.Flag.NodeType1:
-        nodeType = tree.NodeUnion.Type1;
-        nodeContentOffset = this.CreateType1(node);
+      case schema.Flag.NodeIndexed:
+        nodeType = schema.NodeUnion.IndexedNode;
+        nodeContentOffset = this.CreateIndexedNode(node);
         break;
-      case tree.Flag.NodeType2:
-        nodeType = tree.NodeUnion.Type2;
-        nodeContentOffset = this.CreateType2(node);
+      case schema.Flag.NodeBinary:
+        nodeType = schema.NodeUnion.BinaryNode;
+        nodeContentOffset = this.CreateBinaryNode(node);
         break;
-      case tree.Flag.NodeType3:
-        nodeType = tree.NodeUnion.Type3;
-        nodeContentOffset = this.CreateType3(node);
+      case schema.Flag.NodeUnary:
+        nodeType = schema.NodeUnion.UnaryNode;
+        nodeContentOffset = this.CreateUnaryNode(node);
         break;
       default:
-        nodeType = tree.NodeUnion.NONE;
+        nodeType = schema.NodeUnion.NONE;
         break;
     }
-    tree.Node.startNode(this.builder);
-    tree.Node.addOpcode(this.builder, node.opcode);
-    tree.Node.addParent(this.builder, node.parent || BigInt(0));
-    tree.Node.addNext(this.builder, node.next || BigInt(0));
-    tree.Node.addFlags(this.builder, node.flags);
-    tree.Node.addNodeType(this.builder, nodeType);
-    tree.Node.addNode(this.builder, nodeContentOffset);
-    return tree.Node.endNode(this.builder);
+    schema.Node.startNode(this.builder);
+    schema.Node.addOpcode(this.builder, node.opcode);
+    schema.Node.addParent(this.builder, node.parent || 0n);
+    schema.Node.addNext(this.builder, node.next || 0n);
+    schema.Node.addFlags(this.builder, node.flags);
+    schema.Node.addNodeType(this.builder, nodeType);
+    schema.Node.addNode(this.builder, nodeContentOffset);
+    return schema.Node.endNode(this.builder);
   }
 
   public SetNode(node: Node, id?: bigint): NodeId {
-    let _id = id ?? this.nextId++; //! NO
+    let _id = id ?? BigInt(this.nodes.size);
+    if (this.nodes.has(_id)) return this.SetNode(node, ++_id); // Retry with new id if exists
     const nodeOffset = this.buildNode(node);
     this.nodes.set(_id, [node, nodeOffset]);
     return _id;
@@ -94,7 +93,7 @@ export class GoBuilder {
       }
       //! Implement
       for (const n of node[0].fields || []) {
-        if (n.flags & tree.ValueFlag.Pointer) continue;
+        if (n.flags & schema.ValueFlag.Pointer) continue;
 
         const success = this.nodes.delete(n.value as bigint);
         if (!success)
@@ -154,28 +153,28 @@ export class GoBuilder {
     if (id.length <= 0)
       console.error(`Length of package id must be greater than zero!`); //! Add regex check
     return {
-      opcode: tree.Opcode.Package,
+      opcode: schema.Opcode.Package,
       id,
-      flags: tree.Flag.NodeType1,
+      flags: schema.Flag.NodeIndexed,
     };
   }
 
   public CreateImportNode(...imports: NodeId[]): Node {
     return {
-      opcode: tree.Opcode.Import,
+      opcode: schema.Opcode.Import,
       fields: imports.map((v): NodeValue => {
         return {
           value: v,
-          flags: tree.ValueFlag.Pointer,
+          flags: schema.ValueFlag.Pointer,
         };
       }),
-      flags: tree.Flag.NodeType1,
+      flags: schema.Flag.NodeIndexed,
     };
   }
 
   public CreateImportValueNode(path: string, alias?: string): Node {
     return {
-      opcode: tree.Opcode.ImportValue,
+      opcode: schema.Opcode.ImportValue,
       left: {
         value: alias || "",
         flags: 0,
@@ -184,20 +183,20 @@ export class GoBuilder {
         value: path,
         flags: 0,
       },
-      flags: tree.Flag.NodeType2,
+      flags: schema.Flag.NodeBinary,
     };
   }
 
   public CreateConstNode(...constants: NodeId[]): Node {
     return {
-      opcode: tree.Opcode.Const,
+      opcode: schema.Opcode.Const,
       fields: constants.map((v) => {
         return {
           value: v,
-          flags: tree.ValueFlag.Pointer,
+          flags: schema.ValueFlag.Pointer,
         };
       }),
-      flags: tree.Flag.NodeType1,
+      flags: schema.Flag.NodeIndexed,
     };
   }
 
@@ -207,7 +206,7 @@ export class GoBuilder {
     value: string
   ): Node {
     return {
-      opcode: tree.Opcode.Const,
+      opcode: schema.Opcode.Const,
       left: {
         type,
         value: name,
@@ -217,26 +216,26 @@ export class GoBuilder {
         value,
         flags: 0,
       },
-      flags: tree.Flag.NodeType1,
+      flags: schema.Flag.NodeIndexed,
     };
   }
 
   public CreateVarNode(...vars: NodeId[]): Node {
     return {
-      opcode: tree.Opcode.Var,
+      opcode: schema.Opcode.Var,
       fields: vars.map((v) => {
         return {
           value: v,
-          flags: tree.ValueFlag.Pointer,
+          flags: schema.ValueFlag.Pointer,
         };
       }),
-      flags: tree.Flag.NodeType1,
+      flags: schema.Flag.NodeIndexed,
     };
   }
 
   public CreateVarValueNode(name: string, type: TypeDef, value: string): Node {
     return {
-      opcode: tree.Opcode.VarValue,
+      opcode: schema.Opcode.VarValue,
       left: {
         type,
         value: name,
@@ -246,30 +245,30 @@ export class GoBuilder {
         value,
         flags: 0,
       },
-      flags: tree.Flag.NodeType1,
+      flags: schema.Flag.NodeIndexed,
     };
   }
 
-  /* public CreateTypeNode(id: string, type: TypeDef): Node {
+  public CreateTypeNode(type: TypeDef): Node {
     return {
-      opcode: tree.Opcode.Type,
-      id,
+      opcode: schema.Opcode.Type,
+      id: type.id,
       fields: [
         {
           type,
-          value: 0,
-          flags: tree.ValueFlag.Pointer,
+          value: 0n,
+          flags: schema.ValueFlag.None,
         },
       ],
-      flags: tree.Flag.NodeType1,
+      flags: schema.Flag.NodeIndexed,
     };
   }
 
   public CreateFuncNode(def: FuncDef): Node {
     const meta: NodeValue = {
       type: def.type,
-      value: -1,
-      flags: tree.ValueFlag.None,
+      value: 0n,
+      flags: schema.ValueFlag.None,
     };
 
     let params: NodeValue[] = [];
@@ -277,7 +276,7 @@ export class GoBuilder {
       params = def.params.map((v) => {
         return {
           value: v,
-          flags: tree.ValueFlag.Pointer | 61, //! Add proper value flag definition
+          flags: schema.ValueFlag.Pointer | 0, //! Add proper value flag definition
         };
       });
     }
@@ -287,24 +286,71 @@ export class GoBuilder {
       body = def.body?.map((v) => {
         return {
           value: v,
-          flags: tree.ValueFlag.Pointer | 67, //! Add proper value flag definition
+          flags: schema.ValueFlag.Pointer | 0, //! Add proper value flag definition
         };
       });
     }
 
     return {
-      opcode: tree.Opcode.Func,
+      opcode: schema.Opcode.Func,
       id: def.type.id,
       fields: [meta, ...params, ...body],
-      flags: tree.Flag.NodeType1,
+      flags: schema.Flag.NodeIndexed,
     };
-  } */
+  }
 
-  public Print(): void {
+  public CreateIfNode(
+    condition: bigint,
+    body: bigint[],
+    _else: bigint[]
+  ): Node {
+    return {
+      opcode: schema.Opcode.If,
+      fields: [
+        {
+          value: condition,
+          flags: schema.ValueFlag.Pointer,
+        },
+        ...body.map((v) => {
+          return {
+            value: v,
+            flags: schema.ValueFlag.Pointer,
+          };
+        }),
+        ..._else.map((v) => {
+          return {
+            value: v,
+            flags: schema.ValueFlag.Pointer,
+          };
+        }),
+      ],
+      flags: schema.Flag.NodeIndexed,
+    };
+  }
+
+  public CreateForNode(
+    init: bigint,
+    cond: bigint,
+    post: bigint,
+    body: bigint[]
+  ): Node {
+    return {
+      opcode: schema.Opcode.For,
+      flags: schema.Flag.NodeIndexed,
+    };
+  }
+
+  public PrintNodes(): void {
     this.nodes.forEach((v, k) => {
       console.log(
         `${k} (${v[1]}) -> ${JSON.stringify(v[0], (_, v) => (typeof v === "bigint" ? v.toString() : v))}`
       );
+    });
+  }
+
+  public PrintLUT(): void {
+    this.stringlut.forEach((v, k) => {
+      console.log(`${k} -> ${v}`);
     });
   }
 
@@ -327,119 +373,139 @@ export class GoBuilder {
     return hash;
   }
 
-  private CreateType1(node: Node): fb.Offset {
+  private CreateStringLUT(): fb.Offset {
+    const offsets: fb.Offset[] = [];
+    for (const [k, v] of this.stringlut) {
+      const value = this.builder.createString(v);
+
+      schema.StringEntry.startStringEntry(this.builder);
+      schema.StringEntry.addKey(this.builder, k);
+      schema.StringEntry.addValue(this.builder, value);
+      const entry = schema.StringEntry.endStringEntry(this.builder);
+      offsets.push(entry);
+    }
+    return schema.Program.createLutVector(this.builder, offsets);
+  }
+
+  private CreateIndexedNode(node: Node): fb.Offset {
     let fields: fb.Offset[] = [];
     if (node.fields) {
       for (const value of node.fields) {
-        tree.NodeValue.startNodeValue(this.builder);
-        //tree.NodeValue.addType(this.builder, this.GetString(value.type || "")); //! Implement types
+        schema.NodeValue.startNodeValue(this.builder);
+        //schema.NodeValue.addType(this.builder, this.GetString(value.type || "")); //! Implement types
         if (typeof value.value == "string")
-          tree.NodeValue.addValue(
+          schema.NodeValue.addValue(
             this.builder,
             BigInt(this.SetString(value.value || ""))
           );
-        else tree.NodeValue.addValue(this.builder, BigInt(value.value || 0));
+        else schema.NodeValue.addValue(this.builder, value.value || 0n);
 
-        tree.NodeValue.addFlags(this.builder, value.flags);
-        const offset = tree.NodeValue.endNodeValue(this.builder);
+        schema.NodeValue.addFlags(this.builder, value.flags);
+        const offset = schema.NodeValue.endNodeValue(this.builder);
         fields.push(offset);
       }
-      const fieldsVector = tree.Type1.createFieldsVector(this.builder, fields);
-      tree.Type1.addFields(this.builder, fieldsVector);
+      const fieldsVector = schema.IndexedNode.createFieldsVector(
+        this.builder,
+        fields
+      );
+      schema.IndexedNode.addFields(this.builder, fieldsVector);
     }
-    tree.Type1.startType1(this.builder);
-    tree.Type1.addId(this.builder, this.SetString(node.id || ""));
+    schema.IndexedNode.startIndexedNode(this.builder);
+    schema.IndexedNode.addId(this.builder, this.SetString(node.id || ""));
 
-    return tree.Type1.endType1(this.builder);
+    return schema.IndexedNode.endIndexedNode(this.builder);
   }
 
-  private CreateType2(node: Node): fb.Offset {
+  private CreateBinaryNode(node: Node): fb.Offset {
     let left: fb.Offset = 0;
     let right: fb.Offset = 0;
 
     if (node.left) {
-      tree.NodeValue.startNodeValue(this.builder);
-      /* tree.NodeValue.addType(
+      schema.NodeValue.startNodeValue(this.builder);
+      /* schema.NodeValue.addType(
         this.builder,
         this.GetString(node.left.type || "")
       ); */
       if (typeof node.left.value == "string")
-        tree.NodeValue.addValue(
+        schema.NodeValue.addValue(
           this.builder,
           BigInt(this.SetString(node.left.value || ""))
         );
-      else tree.NodeValue.addValue(this.builder, BigInt(node.left.value || 0));
+      else schema.NodeValue.addValue(this.builder, node.left.value || 0n);
 
-      tree.NodeValue.addFlags(this.builder, node.left.flags);
-      left = tree.NodeValue.endNodeValue(this.builder);
+      schema.NodeValue.addFlags(this.builder, node.left.flags);
+      left = schema.NodeValue.endNodeValue(this.builder);
     }
 
     if (node.right) {
-      tree.NodeValue.startNodeValue(this.builder);
-      /* tree.NodeValue.addType(
+      schema.NodeValue.startNodeValue(this.builder);
+      /* schema.NodeValue.addType(
         this.builder,
         this.GetString(node.right.type || "")
       ); */
       if (typeof node.right.value == "string")
-        tree.NodeValue.addValue(
+        schema.NodeValue.addValue(
           this.builder,
           BigInt(this.SetString(node.right.value || ""))
         );
-      else tree.NodeValue.addValue(this.builder, BigInt(node.right.value || 0));
+      else schema.NodeValue.addValue(this.builder, node.right.value || 0n);
 
-      tree.NodeValue.addFlags(this.builder, node.right.flags);
-      right = tree.NodeValue.endNodeValue(this.builder);
+      schema.NodeValue.addFlags(this.builder, node.right.flags);
+      right = schema.NodeValue.endNodeValue(this.builder);
     }
 
-    tree.Type2.startType2(this.builder);
-    tree.Type2.addLeft(this.builder, left);
-    tree.Type2.addRight(this.builder, right);
-    return tree.Type2.endType2(this.builder);
+    schema.BinaryNode.startBinaryNode(this.builder);
+    schema.BinaryNode.addLeft(this.builder, left);
+    schema.BinaryNode.addRight(this.builder, right);
+    return schema.BinaryNode.endBinaryNode(this.builder);
   }
 
-  private CreateType3(node: Node): fb.Offset {
+  private CreateUnaryNode(node: Node): fb.Offset {
     let value: fb.Offset = 0;
     if (node.value) {
-      tree.NodeValue.startNodeValue(this.builder);
-      /* tree.NodeValue.addType(
+      schema.NodeValue.startNodeValue(this.builder);
+      /* schema.NodeValue.addType(
         this.builder,
         this.GetString(node.value.type || "")
       ); */
       if (typeof node.value.value == "string")
-        tree.NodeValue.addValue(
+        schema.NodeValue.addValue(
           this.builder,
           BigInt(this.SetString(node.value.value || ""))
         );
-      else tree.NodeValue.addValue(this.builder, BigInt(node.value.value || 0));
+      else schema.NodeValue.addValue(this.builder, node.value.value || 0n);
 
-      tree.NodeValue.addFlags(this.builder, node.value.flags);
-      value = tree.NodeValue.endNodeValue(this.builder);
+      schema.NodeValue.addFlags(this.builder, node.value.flags);
+      value = schema.NodeValue.endNodeValue(this.builder);
     }
 
-    tree.Type3.startType3(this.builder);
-    tree.Type3.addValue(this.builder, value);
-    return tree.Type3.endType3(this.builder);
+    schema.UnaryNode.startUnaryNode(this.builder);
+    schema.UnaryNode.addValue(this.builder, value);
+    return schema.UnaryNode.endUnaryNode(this.builder);
   }
 
   public Export(flags: number = 0): Uint8Array {
     const nodeOffsets: fb.Offset[] = Array.from(this.nodes.values()).map(
       ([_, offset]) => offset
     );
-    const nodesVector = tree.Program.createNodesVector(
+    const nodesVector = schema.Program.createNodesVector(
       this.builder,
       nodeOffsets
     );
+
+    const stringLUT = this.CreateStringLUT();
 
     const defaultName = "Unnamed Program";
     const programName = this.builder.createString(
       this.options.name || defaultName
     );
 
-    tree.Program.startProgram(this.builder);
-    tree.Program.addNodes(this.builder, nodesVector);
-    tree.Program.addFlags(this.builder, flags);
-    tree.Program.addName(this.builder, programName);
-    const programOffset = tree.Program.endProgram(this.builder);
+    schema.Program.startProgram(this.builder);
+    schema.Program.addNodes(this.builder, nodesVector);
+    schema.Program.addLut(this.builder, stringLUT);
+    schema.Program.addFlags(this.builder, flags);
+    schema.Program.addName(this.builder, programName);
+    const programOffset = schema.Program.endProgram(this.builder);
     this.builder.finish(programOffset);
     return this.builder.asUint8Array();
   }
@@ -447,7 +513,6 @@ export class GoBuilder {
   public Clear() {
     this.builder.clear();
     this.nodes.clear();
-    this.nextId = BigInt(0);
   }
 
   public async Rebuild(flags: number = 0): Promise<Uint8Array> {
@@ -458,18 +523,18 @@ export class GoBuilder {
         const nodeOffset = this.buildNode(node);
         nodes.push(nodeOffset);
       }
-      const nodesVector = tree.Program.createNodesVector(this.builder, nodes);
+      const nodesVector = schema.Program.createNodesVector(this.builder, nodes);
 
       const defaultName = "Unnamed Program";
       const programName = this.builder.createString(
         this.options.name || defaultName
       );
 
-      tree.Program.startProgram(this.builder);
-      tree.Program.addNodes(this.builder, nodesVector);
-      tree.Program.addFlags(this.builder, flags);
-      tree.Program.addName(this.builder, programName);
-      const programOffset = tree.Program.endProgram(this.builder);
+      schema.Program.startProgram(this.builder);
+      schema.Program.addNodes(this.builder, nodesVector);
+      schema.Program.addFlags(this.builder, flags);
+      schema.Program.addName(this.builder, programName);
+      const programOffset = schema.Program.endProgram(this.builder);
       this.builder.finish(programOffset);
       resolve(this.builder.asUint8Array());
     });

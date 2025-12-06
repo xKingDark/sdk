@@ -4,7 +4,7 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { ValueFlag } from '../go/value-flag.js';
+import { ValueFlag } from '../golang/value-flag.js';
 
 
 export class NodeValue {

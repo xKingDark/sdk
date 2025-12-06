@@ -2,7 +2,14 @@
 
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
-export enum ValueFlag {
+export enum Flag {
   None = 0,
-  Pointer = 1
+  NodeIndexed = 1,
+  NodeBinary = 2,
+  NodeUnary = 4,
+  PlaceHolder1 = 8,
+  PlaceHolder2 = 16,
+  PlaceHolder4 = 32,
+  PlaceHolder5 = 64,
+  PlaceHolder6 = 128
 }

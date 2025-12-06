@@ -4,9 +4,9 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { Flag } from '../go/flag.js';
-import { NodeUnion, unionToNodeUnion, unionListToNodeUnion } from '../go/node-union.js';
-import { Opcode } from '../go/opcode.js';
+import { Flag } from '../golang/flag.js';
+import { NodeUnion, unionToNodeUnion, unionListToNodeUnion } from '../golang/node-union.js';
+import { Opcode } from '../golang/opcode.js';
 
 
 export class Node {
