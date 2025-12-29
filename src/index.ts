@@ -1,5 +1,5 @@
 import { fstat, writeFile } from "fs";
-import { GoBuilder, GoBuilderOptions, NodeId } from "./go/builder";
+import { GoBuilder, GoBuilderOptions, NodeId, FuncDef } from "./go/builder";
 import {
   Func,
   PointerType,
@@ -18,7 +18,7 @@ import {
 
 const options: GoBuilderOptions = {
   name: "My First Go Project",
-  size: 1024 * 8,
+  size: 1000 * 64,
 };
 
 const builder = new GoBuilder(options);
@@ -27,7 +27,7 @@ for (let i = 0; i < 1; i++) {
   const packageNode = builder.CreatePackageNode("main");
   const packageId = builder.SetNode(packageNode);
 
-  const imports: NodeId[] = ["fmt", "strconv"].map((v) => {
+  const imports: NodeId[] = ["fmt"].map((v) => {
     return builder.SetNode(builder.CreateImportValueNode(v));
   });
 
@@ -35,21 +35,36 @@ for (let i = 0; i < 1; i++) {
   const importId = builder.SetNode(importNode);
 
   builder.ConnectNodes(packageId, importId);
+
+  const mainFuncType = Func("main", [], []);
+
+  let body: bigint[] = [];
+  for (let i = 0; i < 10; i++) {
+    builder.SetNode(builder.CreateCallNode("fmt.Println", ["Hello, world!"]));
+  }
+
+  const mainFuncDef: FuncDef = {
+    type: mainFuncType,
+    body,
+  };
+  const mainFuncNode = builder.CreateFuncNode(mainFuncDef);
+  const mainFuncId = builder.SetNode(mainFuncNode);
+  builder.ConnectNodes(importId, mainFuncId);
 }
 
-const stringArray: ArrayType = Array(String(), [10]);
+// const stringArray: ArrayType = Array(String(), [10]);
 
-const myStruct: StructType = new Struct()
-  .Name("myStruct")
-  .Field("Hello", stringArray, 'json:"hello"')
-  .AsDefinition();
+// const myStruct: StructType = new Struct()
+//   .Name("myStruct")
+//   .Field("Hello", stringArray, 'json:"hello"')
+//   .AsDefinition();
 
-const myFunc: FuncType = Func("test", [["eg", stringArray]], []);
+// const myFunc: FuncType = Func("test", [["eg", stringArray]], []);
 
-const myInterface: InterfaceType = new Interface()
-  .Name("MyInterface")
-  .Method("MyMethod", myFunc)
-  .AsDefinition();
+// const myInterface: InterfaceType = new Interface()
+//   .Name("MyInterface")
+//   .Method("MyMethod", myFunc)
+//   .AsDefinition();
 
 function formatBytes(size: number) {
   if (size === 0) return "0 B";
@@ -61,10 +76,15 @@ function formatBytes(size: number) {
   return `${(size / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 {
   (async () => {
-    //builder.PrintNodes()
+    builder.PrintNodes();
     builder.PrintLUT();
+    console.log(process.memoryUsage());
     const now = Date.now();
     const output = builder.Export();
     //const output = await builder.Rebuild();

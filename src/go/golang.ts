@@ -2,29 +2,8 @@
 
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
-export { ArrayType } from './golang/array-type.js';
-export { BinaryNode } from './golang/binary-node.js';
 export { ChanDir } from './golang/chan-dir.js';
-export { ChanType } from './golang/chan-type.js';
-export { Flag } from './golang/flag.js';
-export { FuncType } from './golang/func-type.js';
-export { IndexedNode } from './golang/indexed-node.js';
-export { InterfaceMethod } from './golang/interface-method.js';
-export { InterfaceType } from './golang/interface-type.js';
 export { Kind } from './golang/kind.js';
-export { MapType } from './golang/map-type.js';
-export { Node } from './golang/node.js';
-export { NodeUnion } from './golang/node-union.js';
-export { NodeValue } from './golang/node-value.js';
+export { NodeFlag } from './golang/node-flag.js';
 export { Opcode } from './golang/opcode.js';
-export { Pair } from './golang/pair.js';
-export { PointerType } from './golang/pointer-type.js';
-export { Program } from './golang/program.js';
-export { StringEntry } from './golang/string-entry.js';
-export { StructField } from './golang/struct-field.js';
-export { StructType } from './golang/struct-type.js';
-export { Type } from './golang/type.js';
-export { TypeDef } from './golang/type-def.js';
-export { TypeEntry } from './golang/type-entry.js';
-export { UnaryNode } from './golang/unary-node.js';
 export { ValueFlag } from './golang/value-flag.js';

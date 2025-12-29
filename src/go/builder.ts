@@ -1,12 +1,15 @@
 import * as fb from "flatbuffers";
-import * as schema from "./golang";
-import { Type, TypeDef } from "./types";
+import * as go from "./golang";
+import * as program from "../program";
+import { FuncType, Kind, Type, TypeDef } from "./types";
 
 export type NodeId = bigint;
 
 export interface GoBuilderOptions {
-  size?: number;
-  name?: string;
+  size?: number; // Initial size allocated towards the builder.
+  name?: string; // Program name (used when exporting).
+
+  hookChunkSize?: number; // Max size in bytes of each chunk when streaming.
 }
 
 export interface NodeValue {
@@ -16,7 +19,7 @@ export interface NodeValue {
 }
 
 export interface Node {
-  opcode: schema.Opcode;
+  opcode: go.Opcode;
   parent?: NodeId;
   next?: NodeId;
   flags: number;
@@ -31,7 +34,7 @@ export interface Node {
 }
 
 export interface FuncDef {
-  type: TypeDef;
+  type: TypeDef; // Must be of FuncType
   params?: NodeId[]; // Input parameters
   body?: NodeId[]; // Array of node id
 }
@@ -50,30 +53,30 @@ export class GoBuilder {
     let nodeType: number = 0;
     let nodeContentOffset: fb.Offset = 0;
     switch (node.flags) {
-      case schema.Flag.NodeIndexed:
-        nodeType = schema.NodeUnion.IndexedNode;
+      case go.NodeFlag.NodeIndexed:
+        nodeType = program.NodeUnion.IndexedNode;
         nodeContentOffset = this.CreateIndexedNode(node);
         break;
-      case schema.Flag.NodeBinary:
-        nodeType = schema.NodeUnion.BinaryNode;
+      case go.NodeFlag.NodeBinary:
+        nodeType = program.NodeUnion.BinaryNode;
         nodeContentOffset = this.CreateBinaryNode(node);
         break;
-      case schema.Flag.NodeUnary:
-        nodeType = schema.NodeUnion.UnaryNode;
+      case go.NodeFlag.NodeUnary:
+        nodeType = program.NodeUnion.UnaryNode;
         nodeContentOffset = this.CreateUnaryNode(node);
         break;
       default:
-        nodeType = schema.NodeUnion.NONE;
+        nodeType = program.NodeUnion.NONE;
         break;
     }
-    schema.Node.startNode(this.builder);
-    schema.Node.addOpcode(this.builder, node.opcode);
-    schema.Node.addParent(this.builder, node.parent || 0n);
-    schema.Node.addNext(this.builder, node.next || 0n);
-    schema.Node.addFlags(this.builder, node.flags);
-    schema.Node.addNodeType(this.builder, nodeType);
-    schema.Node.addNode(this.builder, nodeContentOffset);
-    return schema.Node.endNode(this.builder);
+    program.Node.startNode(this.builder);
+    program.Node.addOpcode(this.builder, node.opcode);
+    program.Node.addParent(this.builder, node.parent || 0n);
+    program.Node.addNext(this.builder, node.next || 0n);
+    program.Node.addFlags(this.builder, node.flags);
+    program.Node.addNodeType(this.builder, nodeType);
+    program.Node.addNode(this.builder, nodeContentOffset);
+    return program.Node.endNode(this.builder);
   }
 
   public SetNode(node: Node, id?: bigint): NodeId {
@@ -91,9 +94,9 @@ export class GoBuilder {
         console.error(`Unknown id of ${id}`);
         return;
       }
-      //! Implement
+      // WARN - Implement
       for (const n of node[0].fields || []) {
-        if (n.flags & schema.ValueFlag.Pointer) continue;
+        if (n.flags & go.ValueFlag.Pointer) continue;
 
         const success = this.nodes.delete(n.value as bigint);
         if (!success)
@@ -151,30 +154,30 @@ export class GoBuilder {
 
   public CreatePackageNode(id: string): Node {
     if (id.length <= 0)
-      console.error(`Length of package id must be greater than zero!`); //! Add regex check
+      console.error(`Length of package id must be greater than zero!`); // WARN - Add regex check
     return {
-      opcode: schema.Opcode.Package,
+      opcode: go.Opcode.Package,
       id,
-      flags: schema.Flag.NodeIndexed,
+      flags: go.NodeFlag.NodeIndexed,
     };
   }
 
   public CreateImportNode(...imports: NodeId[]): Node {
     return {
-      opcode: schema.Opcode.Import,
+      opcode: go.Opcode.Import,
       fields: imports.map((v): NodeValue => {
         return {
           value: v,
-          flags: schema.ValueFlag.Pointer,
+          flags: go.ValueFlag.Pointer,
         };
       }),
-      flags: schema.Flag.NodeIndexed,
+      flags: go.NodeFlag.NodeIndexed,
     };
   }
 
   public CreateImportValueNode(path: string, alias?: string): Node {
     return {
-      opcode: schema.Opcode.ImportValue,
+      opcode: go.Opcode.ImportValue,
       left: {
         value: alias || "",
         flags: 0,
@@ -183,30 +186,30 @@ export class GoBuilder {
         value: path,
         flags: 0,
       },
-      flags: schema.Flag.NodeBinary,
+      flags: go.NodeFlag.NodeBinary,
     };
   }
 
   public CreateConstNode(...constants: NodeId[]): Node {
     return {
-      opcode: schema.Opcode.Const,
+      opcode: go.Opcode.Const,
       fields: constants.map((v) => {
         return {
           value: v,
-          flags: schema.ValueFlag.Pointer,
+          flags: go.ValueFlag.Pointer,
         };
       }),
-      flags: schema.Flag.NodeIndexed,
+      flags: go.NodeFlag.NodeIndexed,
     };
   }
 
   public CreateConstValueNode(
     name: string,
     type: TypeDef,
-    value: string
+    value: string,
   ): Node {
     return {
-      opcode: schema.Opcode.Const,
+      opcode: go.Opcode.Const,
       left: {
         type,
         value: name,
@@ -216,26 +219,26 @@ export class GoBuilder {
         value,
         flags: 0,
       },
-      flags: schema.Flag.NodeIndexed,
+      flags: go.NodeFlag.NodeIndexed,
     };
   }
 
   public CreateVarNode(...vars: NodeId[]): Node {
     return {
-      opcode: schema.Opcode.Var,
+      opcode: go.Opcode.Var,
       fields: vars.map((v) => {
         return {
           value: v,
-          flags: schema.ValueFlag.Pointer,
+          flags: go.ValueFlag.Pointer,
         };
       }),
-      flags: schema.Flag.NodeIndexed,
+      flags: go.NodeFlag.NodeIndexed,
     };
   }
 
   public CreateVarValueNode(name: string, type: TypeDef, value: string): Node {
     return {
-      opcode: schema.Opcode.VarValue,
+      opcode: go.Opcode.VarValue,
       left: {
         type,
         value: name,
@@ -245,22 +248,22 @@ export class GoBuilder {
         value,
         flags: 0,
       },
-      flags: schema.Flag.NodeIndexed,
+      flags: go.NodeFlag.NodeIndexed,
     };
   }
 
   public CreateTypeNode(type: TypeDef): Node {
     return {
-      opcode: schema.Opcode.Type,
+      opcode: go.Opcode.Type,
       id: type.id,
       fields: [
         {
           type,
           value: 0n,
-          flags: schema.ValueFlag.None,
+          flags: go.ValueFlag.None,
         },
       ],
-      flags: schema.Flag.NodeIndexed,
+      flags: go.NodeFlag.NodeIndexed,
     };
   }
 
@@ -268,7 +271,7 @@ export class GoBuilder {
     const meta: NodeValue = {
       type: def.type,
       value: 0n,
-      flags: schema.ValueFlag.None,
+      flags: go.ValueFlag.None,
     };
 
     let params: NodeValue[] = [];
@@ -276,7 +279,7 @@ export class GoBuilder {
       params = def.params.map((v) => {
         return {
           value: v,
-          flags: schema.ValueFlag.Pointer | 0, //! Add proper value flag definition
+          flags: go.ValueFlag.Pointer | 0, // WARN - Add proper value flag definition
         };
       });
     }
@@ -286,45 +289,45 @@ export class GoBuilder {
       body = def.body?.map((v) => {
         return {
           value: v,
-          flags: schema.ValueFlag.Pointer | 0, //! Add proper value flag definition
+          flags: go.ValueFlag.Pointer | 0, // WARN - Add proper value flag definition
         };
       });
     }
 
     return {
-      opcode: schema.Opcode.Func,
+      opcode: go.Opcode.Func,
       id: def.type.id,
       fields: [meta, ...params, ...body],
-      flags: schema.Flag.NodeIndexed,
+      flags: go.NodeFlag.NodeIndexed,
     };
   }
 
   public CreateIfNode(
     condition: bigint,
     body: bigint[],
-    _else: bigint[]
+    _else: bigint[],
   ): Node {
     return {
-      opcode: schema.Opcode.If,
+      opcode: go.Opcode.If,
       fields: [
         {
           value: condition,
-          flags: schema.ValueFlag.Pointer,
+          flags: go.ValueFlag.Pointer | 0, // WARN - Add proper value flag definition
         },
         ...body.map((v) => {
           return {
             value: v,
-            flags: schema.ValueFlag.Pointer,
+            flags: go.ValueFlag.Pointer | 0, // WARN - Add proper value flag definition
           };
         }),
         ..._else.map((v) => {
           return {
             value: v,
-            flags: schema.ValueFlag.Pointer,
+            flags: go.ValueFlag.Pointer | 0, // WARN - Add proper value flag definition
           };
         }),
       ],
-      flags: schema.Flag.NodeIndexed,
+      flags: go.NodeFlag.NodeIndexed,
     };
   }
 
@@ -332,18 +335,921 @@ export class GoBuilder {
     init: bigint,
     cond: bigint,
     post: bigint,
-    body: bigint[]
+    body: bigint[],
   ): Node {
     return {
-      opcode: schema.Opcode.For,
-      flags: schema.Flag.NodeIndexed,
+      opcode: go.Opcode.For,
+      flags: go.NodeFlag.NodeIndexed,
+      fields: [
+        {
+          value: init,
+          flags: go.ValueFlag.Pointer,
+        },
+        {
+          value: cond,
+          flags: go.ValueFlag.Pointer,
+        },
+        {
+          value: post,
+          flags: go.ValueFlag.Pointer,
+        },
+        ...body.map((v) => {
+          return {
+            value: v,
+            flags: go.ValueFlag.Pointer,
+          };
+        }),
+      ],
+    };
+  }
+
+  public CreateForRangeNode(
+    var1: bigint, // First variable assignment
+    var2: bigint, // Second varable assignment
+    value: bigint, // Ranged value
+  ): Node {
+    return {
+      opcode: go.Opcode.ForRange,
+      flags: go.NodeFlag.NodeIndexed,
+      fields: [
+        {
+          value: var1,
+          flags: go.ValueFlag.Pointer,
+        },
+        {
+          value: var2,
+          flags: go.ValueFlag.Pointer,
+        },
+        {
+          value: value,
+          flags: go.ValueFlag.Pointer,
+        },
+      ],
+    };
+  }
+
+  public CreateSwitchNode(expression: bigint, body: bigint[]): Node {
+    return {
+      opcode: go.Opcode.Switch,
+      flags: go.NodeFlag.NodeIndexed,
+      fields: [
+        ...body.map((v) => {
+          return {
+            value: v,
+            flags: go.ValueFlag.Pointer,
+          };
+        }),
+      ],
+    };
+  }
+
+  public CreateSelectNode(body: bigint[]): Node {
+    return {
+      opcode: go.Opcode.Select,
+      flags: go.NodeFlag.NodeIndexed,
+      fields: body.map((v) => {
+        return {
+          value: v,
+          flags: go.ValueFlag.Pointer,
+        };
+      }),
+    };
+  }
+
+  public CreateCaseNode(expression: bigint, body: bigint[]): Node {
+    return {
+      opcode: go.Opcode.Case,
+      flags: go.NodeFlag.NodeIndexed,
+      fields: [
+        {
+          value: expression,
+          flags: go.ValueFlag.Pointer,
+        },
+        ...body.map((v) => {
+          return {
+            value: v,
+            flags: go.ValueFlag.Pointer,
+          };
+        }),
+      ],
+    };
+  }
+
+  public CreateDefaultNode(body: bigint[]): Node {
+    return {
+      opcode: go.Opcode.Case,
+      flags: go.NodeFlag.NodeIndexed,
+      fields: body.map((v) => {
+        return {
+          value: v,
+          flags: go.ValueFlag.Pointer,
+        };
+      }),
+    };
+  }
+
+  public CreateAddNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.Add,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateSubNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.Sub,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateMulNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.Mul,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateDivNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.Div,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateModNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.Mod,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateIncNode(a: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.Inc,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateDecNode(a: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.Dec,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateAssignNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.Assign,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateAddAssignNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.AddAssign,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateSubAssignNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.SubAssign,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateMulAssignNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.MulAssign,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateDivAssignNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.DivAssign,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateModAssignNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.ModAssign,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateBitAndAssignNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.BitAndAssign,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateBitOrAssignNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.BitOrAssign,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateBitXorAssignNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.BitXorAssign,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateBitClearAssignNode(
+    a: string | NodeId,
+    b: string | NodeId,
+  ): Node {
+    return {
+      opcode: go.Opcode.BitClearAssign,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateLeftShiftAssignNode(
+    a: string | NodeId,
+    b: string | NodeId,
+  ): Node {
+    return {
+      opcode: go.Opcode.LeftShiftAssign,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateRightShiftAssignNode(
+    a: string | NodeId,
+    b: string | NodeId,
+  ): Node {
+    return {
+      opcode: go.Opcode.RightShiftAssign,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateEqualNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.Equal,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateNotEqualNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.NotEqual,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateLessNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.Less,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateLessEqualNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.LessEqual,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateGreaterNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.Greater,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateGreaterEqualNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.GreaterEqual,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateAndNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.And,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateOrNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.Or,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateNotNode(a: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.Not,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateBitAndNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.BitAnd,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateBitOrNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.BitOr,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateBitXorNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.BitXor,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateBitClearNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.BitClear,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateLeftShiftNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.LeftShift,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateRightShiftNode(a: string | NodeId, b: string | NodeId): Node {
+    return {
+      opcode: go.Opcode.RightShift,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: a,
+        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+      right: {
+        value: b,
+        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateChanSendNode(chan: NodeId, value: NodeId): Node {
+    return {
+      opcode: go.Opcode.Send,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: chan,
+        flags: go.ValueFlag.Pointer,
+      },
+      right: {
+        value: value,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  public CreateChanReceiveNode(chan: NodeId): Node {
+    return {
+      opcode: go.Opcode.Receive,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: chan,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  public CreateAddrOfNode(value: NodeId): Node {
+    return {
+      opcode: go.Opcode.AddrOf,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: value,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  public CreateDerefNode(ptr: NodeId): Node {
+    return {
+      opcode: go.Opcode.Deref,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: ptr,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  public CreateCallNode(funcId: string, params: (NodeId | string)[]): Node {
+    return {
+      opcode: go.Opcode.Call,
+      flags: go.NodeFlag.NodeIndexed,
+      id: funcId,
+      fields: params.map((v) => {
+        return {
+          value: v,
+          flags: go.ValueFlag.Pointer,
+        };
+      }),
+    };
+  }
+
+  public CreateReturnNode(params: NodeId[]): Node {
+    return {
+      opcode: go.Opcode.Call,
+      flags: go.NodeFlag.NodeIndexed,
+      fields: params.map((v) => {
+        return {
+          value: v,
+          flags: go.ValueFlag.Pointer,
+        };
+      }),
+    };
+  }
+
+  public CreateDeferNode(call: NodeId): Node {
+    return {
+      opcode: go.Opcode.Defer,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: call,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  public CreateGoRoutineNode(call: NodeId): Node {
+    return {
+      opcode: go.Opcode.GoRoutine,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: call,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  // public CreateMapNode(mapDef: TypeDef, body: NodeId[]): Node {
+  //   return { // WARN - needs attention
+  //     opcode: go.Opcode.Map,
+  //     flags: go.NodeFlag.NodeIndexed,
+  //     fields: body.map((v) => {
+  //       return {
+  //         value: v,
+  //         flags: go.ValueFlag.Pointer,
+  //       };
+  //     })
+  //   };
+  // }
+
+  // public CreateArrayNode(arrayDef: TypeDef, body: NodeId[]): Node {
+  //   return { // WARN - needs attention
+  //     opcode: go.Opcode.Array,
+  //     flags: go.NodeFlag.NodeIndexed,
+  //     fields: body.map((v) => {
+  //       return {
+  //         value: v,
+  //         flags: go.ValueFlag.Pointer,
+  //       };
+  //     })
+  //   };
+  // }
+
+  public Panic(expression: NodeId): Node {
+    return {
+      opcode: go.Opcode.Panic,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: expression,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  public Recover(): Node {
+    return {
+      opcode: go.Opcode.Panic,
+      flags: go.NodeFlag.None,
+    };
+  }
+
+  public CreateMakeNode(params: NodeId[]): Node {
+    return {
+      opcode: go.Opcode.Make,
+      flags: go.NodeFlag.NodeIndexed,
+      fields: params.map((v) => {
+        return {
+          value: v,
+          flags: go.ValueFlag.Pointer,
+        };
+      }),
+    };
+  }
+
+  public New(_type: Type): Node {
+    return {
+      // WARN - NEEDS ATTENTION
+      opcode: go.Opcode.Panic,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: 0n,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  public CreateLenNode(param: NodeId): Node {
+    return {
+      opcode: go.Opcode.Len,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: param,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  public CreateCapNode(param: NodeId): Node {
+    return {
+      opcode: go.Opcode.Cap,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: param,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  public CreateAppendNode(params: NodeId[]): Node {
+    return {
+      opcode: go.Opcode.Cap,
+      flags: go.NodeFlag.NodeUnary,
+      fields: params.map((v) => {
+        return {
+          value: v,
+          flags: go.ValueFlag.Pointer,
+        };
+      }),
+    };
+  }
+
+  public CreateCopyNode(dst: NodeId, src: NodeId): Node {
+    return {
+      opcode: go.Opcode.Copy,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: dst,
+        flags: go.ValueFlag.Pointer,
+      },
+      right: {
+        value: src,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  public CreateCloseNode(chan: Type): Node {
+    return {
+      // WARN - NEEDS ATTENTION
+      opcode: go.Opcode.Close,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: 0n,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  public CreateComplexNode(r: string, i: string): Node {
+    return {
+      opcode: go.Opcode.Complex,
+      flags: go.NodeFlag.NodeBinary,
+      left: {
+        value: r,
+        flags: go.ValueFlag.None,
+      },
+      right: {
+        value: i,
+        flags: go.ValueFlag.None,
+      },
+    };
+  }
+
+  public CreateRealNode(c: NodeId): Node {
+    return {
+      opcode: go.Opcode.Real,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: c,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  public CreateImagNode(c: NodeId): Node {
+    return {
+      opcode: go.Opcode.Imag,
+      flags: go.NodeFlag.NodeUnary,
+      value: {
+        value: c,
+        flags: go.ValueFlag.Pointer,
+      },
+    };
+  }
+
+  public CreatePrintNode(params: NodeId[]): Node {
+    return {
+      opcode: go.Opcode.Print,
+      flags: go.NodeFlag.NodeIndexed,
+      fields: params.map((v) => {
+        return {
+          value: v,
+          flags: go.ValueFlag.Pointer,
+        };
+      }),
+    };
+  }
+
+  public CreatePrintlnNode(params: NodeId[]): Node {
+    return {
+      opcode: go.Opcode.Println,
+      flags: go.NodeFlag.NodeIndexed,
+      fields: params.map((v) => {
+        return {
+          value: v,
+          flags: go.ValueFlag.Pointer,
+        };
+      }),
     };
   }
 
   public PrintNodes(): void {
     this.nodes.forEach((v, k) => {
       console.log(
-        `${k} (${v[1]}) -> ${JSON.stringify(v[0], (_, v) => (typeof v === "bigint" ? v.toString() : v))}`
+        `${k} (${v[1]}) -> ${JSON.stringify(v[0], (_, v) => (typeof v === "bigint" ? v.toString() : v))}`,
       );
     });
   }
@@ -378,42 +1284,42 @@ export class GoBuilder {
     for (const [k, v] of this.stringlut) {
       const value = this.builder.createString(v);
 
-      schema.StringEntry.startStringEntry(this.builder);
-      schema.StringEntry.addKey(this.builder, k);
-      schema.StringEntry.addValue(this.builder, value);
-      const entry = schema.StringEntry.endStringEntry(this.builder);
+      program.StringEntry.startStringEntry(this.builder);
+      program.StringEntry.addKey(this.builder, k);
+      program.StringEntry.addValue(this.builder, value);
+      const entry = program.StringEntry.endStringEntry(this.builder);
       offsets.push(entry);
     }
-    return schema.Program.createLutVector(this.builder, offsets);
+    return program.App.createLutVector(this.builder, offsets);
   }
 
   private CreateIndexedNode(node: Node): fb.Offset {
     let fields: fb.Offset[] = [];
     if (node.fields) {
       for (const value of node.fields) {
-        schema.NodeValue.startNodeValue(this.builder);
-        //schema.NodeValue.addType(this.builder, this.GetString(value.type || "")); //! Implement types
+        program.NodeValue.startNodeValue(this.builder);
+        //schema.NodeValue.addType(this.builder, this.GetString(value.type || "")); // WARN - Implement types
         if (typeof value.value == "string")
-          schema.NodeValue.addValue(
+          program.NodeValue.addValue(
             this.builder,
-            BigInt(this.SetString(value.value || ""))
+            BigInt(this.SetString(value.value || "")),
           );
-        else schema.NodeValue.addValue(this.builder, value.value || 0n);
+        else program.NodeValue.addValue(this.builder, value.value || 0n);
 
-        schema.NodeValue.addFlags(this.builder, value.flags);
-        const offset = schema.NodeValue.endNodeValue(this.builder);
+        program.NodeValue.addFlags(this.builder, value.flags);
+        const offset = program.NodeValue.endNodeValue(this.builder);
         fields.push(offset);
       }
-      const fieldsVector = schema.IndexedNode.createFieldsVector(
+      const fieldsVector = program.IndexedNode.createFieldsVector(
         this.builder,
-        fields
+        fields,
       );
-      schema.IndexedNode.addFields(this.builder, fieldsVector);
+      program.IndexedNode.addFields(this.builder, fieldsVector);
     }
-    schema.IndexedNode.startIndexedNode(this.builder);
-    schema.IndexedNode.addId(this.builder, this.SetString(node.id || ""));
+    program.IndexedNode.startIndexedNode(this.builder);
+    program.IndexedNode.addId(this.builder, this.SetString(node.id || ""));
 
-    return schema.IndexedNode.endIndexedNode(this.builder);
+    return program.IndexedNode.endIndexedNode(this.builder);
   }
 
   private CreateBinaryNode(node: Node): fb.Offset {
@@ -421,91 +1327,91 @@ export class GoBuilder {
     let right: fb.Offset = 0;
 
     if (node.left) {
-      schema.NodeValue.startNodeValue(this.builder);
+      program.NodeValue.startNodeValue(this.builder);
       /* schema.NodeValue.addType(
         this.builder,
         this.GetString(node.left.type || "")
       ); */
       if (typeof node.left.value == "string")
-        schema.NodeValue.addValue(
+        program.NodeValue.addValue(
           this.builder,
-          BigInt(this.SetString(node.left.value || ""))
+          BigInt(this.SetString(node.left.value || "")),
         );
-      else schema.NodeValue.addValue(this.builder, node.left.value || 0n);
+      else program.NodeValue.addValue(this.builder, node.left.value || 0n);
 
-      schema.NodeValue.addFlags(this.builder, node.left.flags);
-      left = schema.NodeValue.endNodeValue(this.builder);
+      program.NodeValue.addFlags(this.builder, node.left.flags);
+      left = program.NodeValue.endNodeValue(this.builder);
     }
 
     if (node.right) {
-      schema.NodeValue.startNodeValue(this.builder);
+      program.NodeValue.startNodeValue(this.builder);
       /* schema.NodeValue.addType(
         this.builder,
         this.GetString(node.right.type || "")
       ); */
       if (typeof node.right.value == "string")
-        schema.NodeValue.addValue(
+        program.NodeValue.addValue(
           this.builder,
-          BigInt(this.SetString(node.right.value || ""))
+          BigInt(this.SetString(node.right.value || "")),
         );
-      else schema.NodeValue.addValue(this.builder, node.right.value || 0n);
+      else program.NodeValue.addValue(this.builder, node.right.value || 0n);
 
-      schema.NodeValue.addFlags(this.builder, node.right.flags);
-      right = schema.NodeValue.endNodeValue(this.builder);
+      program.NodeValue.addFlags(this.builder, node.right.flags);
+      right = program.NodeValue.endNodeValue(this.builder);
     }
 
-    schema.BinaryNode.startBinaryNode(this.builder);
-    schema.BinaryNode.addLeft(this.builder, left);
-    schema.BinaryNode.addRight(this.builder, right);
-    return schema.BinaryNode.endBinaryNode(this.builder);
+    program.BinaryNode.startBinaryNode(this.builder);
+    program.BinaryNode.addLeft(this.builder, left);
+    program.BinaryNode.addRight(this.builder, right);
+    return program.BinaryNode.endBinaryNode(this.builder);
   }
 
   private CreateUnaryNode(node: Node): fb.Offset {
     let value: fb.Offset = 0;
     if (node.value) {
-      schema.NodeValue.startNodeValue(this.builder);
+      program.NodeValue.startNodeValue(this.builder);
       /* schema.NodeValue.addType(
         this.builder,
         this.GetString(node.value.type || "")
       ); */
       if (typeof node.value.value == "string")
-        schema.NodeValue.addValue(
+        program.NodeValue.addValue(
           this.builder,
-          BigInt(this.SetString(node.value.value || ""))
+          BigInt(this.SetString(node.value.value || "")),
         );
-      else schema.NodeValue.addValue(this.builder, node.value.value || 0n);
+      else program.NodeValue.addValue(this.builder, node.value.value || 0n);
 
-      schema.NodeValue.addFlags(this.builder, node.value.flags);
-      value = schema.NodeValue.endNodeValue(this.builder);
+      program.NodeValue.addFlags(this.builder, node.value.flags);
+      value = program.NodeValue.endNodeValue(this.builder);
     }
 
-    schema.UnaryNode.startUnaryNode(this.builder);
-    schema.UnaryNode.addValue(this.builder, value);
-    return schema.UnaryNode.endUnaryNode(this.builder);
+    program.UnaryNode.startUnaryNode(this.builder);
+    program.UnaryNode.addValue(this.builder, value);
+    return program.UnaryNode.endUnaryNode(this.builder);
   }
 
   public Export(flags: number = 0): Uint8Array {
     const nodeOffsets: fb.Offset[] = Array.from(this.nodes.values()).map(
-      ([_, offset]) => offset
+      ([_, offset]) => offset,
     );
-    const nodesVector = schema.Program.createNodesVector(
+    const nodesVector = program.App.createNodesVector(
       this.builder,
-      nodeOffsets
+      nodeOffsets,
     );
 
     const stringLUT = this.CreateStringLUT();
 
     const defaultName = "Unnamed Program";
     const programName = this.builder.createString(
-      this.options.name || defaultName
+      this.options.name || defaultName,
     );
 
-    schema.Program.startProgram(this.builder);
-    schema.Program.addNodes(this.builder, nodesVector);
-    schema.Program.addLut(this.builder, stringLUT);
-    schema.Program.addFlags(this.builder, flags);
-    schema.Program.addName(this.builder, programName);
-    const programOffset = schema.Program.endProgram(this.builder);
+    program.App.startApp(this.builder);
+    program.App.addNodes(this.builder, nodesVector);
+    program.App.addLut(this.builder, stringLUT);
+    program.App.addFlags(this.builder, flags);
+    program.App.addName(this.builder, programName);
+    const programOffset = program.App.endApp(this.builder);
     this.builder.finish(programOffset);
     return this.builder.asUint8Array();
   }
@@ -523,20 +1429,24 @@ export class GoBuilder {
         const nodeOffset = this.buildNode(node);
         nodes.push(nodeOffset);
       }
-      const nodesVector = schema.Program.createNodesVector(this.builder, nodes);
+      const nodesVector = program.App.createNodesVector(this.builder, nodes);
 
       const defaultName = "Unnamed Program";
       const programName = this.builder.createString(
-        this.options.name || defaultName
+        this.options.name || defaultName,
       );
 
-      schema.Program.startProgram(this.builder);
-      schema.Program.addNodes(this.builder, nodesVector);
-      schema.Program.addFlags(this.builder, flags);
-      schema.Program.addName(this.builder, programName);
-      const programOffset = schema.Program.endProgram(this.builder);
+      program.App.startApp(this.builder);
+      program.App.addNodes(this.builder, nodesVector);
+      program.App.addFlags(this.builder, flags);
+      program.App.addName(this.builder, programName);
+      const programOffset = program.App.endApp(this.builder);
       this.builder.finish(programOffset);
       resolve(this.builder.asUint8Array());
     });
   }
+
+  // Initiates a data stream between the recipitant and the end user
+  // Use this to feed the compiler the data live
+  public Hook(addr: string) {}
 }

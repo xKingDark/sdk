@@ -8,10 +8,9 @@ export enum ValueFlag {
   FuncMeta = 2,
   FuncParams = 4,
   FuncBody = 8,
-  FuncResults = 16,
+  PlaceHolder6 = 16,
   PlaceHolder1 = 32,
   PlaceHolder2 = 64,
   PlaceHolder4 = 128,
-  PlaceHolder5 = 256,
-  PlaceHolder6 = 512
+  PlaceHolder5 = 256
 }
