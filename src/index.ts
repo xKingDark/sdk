@@ -8,12 +8,12 @@ import {
   Interface,
   TypeDef,
   Type,
-  Array,
   String,
   ArrayType,
   StructType,
   FuncType,
   InterfaceType,
+  Int,
 } from "./go/types";
 
 const options: GoBuilderOptions = {
@@ -27,7 +27,7 @@ for (let i = 0; i < 1; i++) {
   const packageNode = builder.CreatePackageNode("main");
   const packageId = builder.SetNode(packageNode);
 
-  const imports: NodeId[] = ["fmt"].map((v) => {
+  const imports: NodeId[] = ["fmt", "testing"].map((v) => {
     return builder.SetNode(builder.CreateImportValueNode(v));
   });
 
@@ -36,6 +36,44 @@ for (let i = 0; i < 1; i++) {
 
   builder.ConnectNodes(packageId, importId);
 
+  const consts: NodeId[] = [
+    ["Greeting", "Hello, World!"],
+    ["Farewell", "Goodbye, World!"],
+  ].map((v) => {
+    return builder.SetNode(
+      builder.CreateConstValueNode(v[0], Int("Test", 32), v[1]),
+    );
+  });
+
+  const constNode = builder.CreateConstNode(...consts);
+  const constId = builder.SetNode(constNode);
+
+  builder.ConnectNodes(importId, constId);
+
+  const vars: NodeId[] = [
+    ["Greeting", "Hello, World!"],
+    ["Farewell", "Goodbye, World!"],
+  ].map((v) => {
+    return builder.SetNode(
+      builder.CreateVarValueNode(v[0], Int("Test", 32), v[1]),
+    );
+  });
+
+  const varNode = builder.CreateVarNode(...vars);
+  const varId = builder.SetNode(varNode);
+
+  builder.ConnectNodes(constId, varId);
+
+  const ConditonNode = builder.CreateEqualNode("67", "76");
+  const ConditonId = builder.SetNode(ConditonNode);
+
+  const BodyNode = builder.CreateVarNode(vars[0]);
+  const BodyId = builder.SetNode(BodyNode);
+
+  const IfNode = builder.CreateIfNode(ConditonId, [BodyId]);
+  const IfId = builder.SetNode(IfNode);
+
+  builder.ConnectNodes(varId, IfId);
   const mainFuncType = Func("main", [], []);
 
   let body: bigint[] = [];
@@ -43,8 +81,11 @@ for (let i = 0; i < 1; i++) {
     builder.SetNode(builder.CreateCallNode("fmt.Println", ["Hello, world!"]));
   }
 
+  //let params: bigint[] = [BigInt(builder.SetString("Hello, world"))];
+
   const mainFuncDef: FuncDef = {
     type: mainFuncType,
+    //params,
     body,
   };
   const mainFuncNode = builder.CreateFuncNode(mainFuncDef);
@@ -92,9 +133,14 @@ function sleep(ms: number): Promise<void> {
     console.log(output);
     console.log(`size: ${formatBytes(output.length)}`);
     let { signal } = new AbortController();
-    writeFile("nodes.opt", output, { signal }, (err) => {
-      if (!err) return;
-      console.error(err);
-    });
+    writeFile(
+      "C:\\Users\\explo\\OneDrive\\Documents\\Projects\\Opticode\\go-compiler\\nodes.opt",
+      output,
+      { signal },
+      (err) => {
+        if (!err) return;
+        console.error(err);
+      },
+    );
   })();
 }

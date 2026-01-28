@@ -1,6 +1,7 @@
 import * as fb from "flatbuffers";
 import * as go from "./golang";
 import * as program from "../program";
+//import "async-mutex";
 import { FuncType, Kind, Type, TypeDef } from "./types";
 
 export type NodeId = bigint;
@@ -42,14 +43,19 @@ export interface FuncDef {
 export class GoBuilder {
   private builder: fb.Builder;
   private stringlut: Map<number, string> = new Map();
+  private typelut: Map<number, fb.Offset> = new Map();
   private nodes: Map<bigint, [Node, fb.Offset]> = new Map();
+  //private buildMutex: Mutex = new Mutex();
 
   constructor(private options: GoBuilderOptions) {
     const defaultSize = 1024;
+
+    this.SetString("");
+
     this.builder = new fb.Builder(options.size || defaultSize);
   }
 
-  private buildNode(node: Node): fb.Offset {
+  private buildNode(node: Node, id: bigint): fb.Offset {
     let nodeType: number = 0;
     let nodeContentOffset: fb.Offset = 0;
     switch (node.flags) {
@@ -71,6 +77,8 @@ export class GoBuilder {
     }
     program.Node.startNode(this.builder);
     program.Node.addOpcode(this.builder, node.opcode);
+    console.log(`id: ${id}`);
+    program.Node.addId(this.builder, id);
     program.Node.addParent(this.builder, node.parent || 0n);
     program.Node.addNext(this.builder, node.next || 0n);
     program.Node.addFlags(this.builder, node.flags);
@@ -80,9 +88,9 @@ export class GoBuilder {
   }
 
   public SetNode(node: Node, id?: bigint): NodeId {
-    let _id = id ?? BigInt(this.nodes.size);
+    let _id = id || BigInt(this.nodes.size);
     if (this.nodes.has(_id)) return this.SetNode(node, ++_id); // Retry with new id if exists
-    const nodeOffset = this.buildNode(node);
+    const nodeOffset = this.buildNode(node, _id);
     this.nodes.set(_id, [node, nodeOffset]);
     return _id;
   }
@@ -120,7 +128,7 @@ export class GoBuilder {
     }
 
     node[0].fields[index] = field;
-    const nodeOffset = this.buildNode(node[0]);
+    const nodeOffset = this.buildNode(node[0], id);
     this.nodes.set(id, [node[0], nodeOffset]);
   }
 
@@ -139,8 +147,11 @@ export class GoBuilder {
 
     targetNode[0].next = child;
     sourceNode[0].parent = parent;
-    const targetNodeOffset = this.buildNode(targetNode[0]);
-    const sourceNodeOffset = this.buildNode(sourceNode[0]);
+
+    targetNode[0].parent = -1n;
+    sourceNode[0].next = -1n;
+    const targetNodeOffset = this.buildNode(targetNode[0], parent);
+    const sourceNodeOffset = this.buildNode(sourceNode[0], child);
     this.nodes.set(parent, [targetNode[0], targetNodeOffset]);
     this.nodes.set(child, [sourceNode[0], sourceNodeOffset]);
   }
@@ -150,6 +161,10 @@ export class GoBuilder {
       opcode,
       flags,
     };
+  }
+
+  private isValidNumber(str: string): boolean {
+    return !isNaN(Number(str));
   }
 
   public CreatePackageNode(id: string): Node {
@@ -209,7 +224,7 @@ export class GoBuilder {
     value: string,
   ): Node {
     return {
-      opcode: go.Opcode.Const,
+      opcode: go.Opcode.ConstValue,
       left: {
         type,
         value: name,
@@ -217,9 +232,11 @@ export class GoBuilder {
       },
       right: {
         value,
-        flags: 0,
+        flags: this.isValidNumber(value)
+          ? go.ValueFlag.None
+          : go.ValueFlag.Quotation,
       },
-      flags: go.NodeFlag.NodeIndexed,
+      flags: go.NodeFlag.NodeBinary,
     };
   }
 
@@ -246,9 +263,11 @@ export class GoBuilder {
       },
       right: {
         value,
-        flags: 0,
+        flags: this.isValidNumber(value)
+          ? go.ValueFlag.None
+          : go.ValueFlag.Quotation,
       },
-      flags: go.NodeFlag.NodeIndexed,
+      flags: go.NodeFlag.NodeBinary,
     };
   }
 
@@ -271,7 +290,7 @@ export class GoBuilder {
     const meta: NodeValue = {
       type: def.type,
       value: 0n,
-      flags: go.ValueFlag.None,
+      flags: go.ValueFlag.FuncMeta,
     };
 
     let params: NodeValue[] = [];
@@ -279,7 +298,7 @@ export class GoBuilder {
       params = def.params.map((v) => {
         return {
           value: v,
-          flags: go.ValueFlag.Pointer | 0, // WARN - Add proper value flag definition
+          flags: go.ValueFlag.Pointer | go.ValueFlag.FuncParam,
         };
       });
     }
@@ -289,7 +308,7 @@ export class GoBuilder {
       body = def.body?.map((v) => {
         return {
           value: v,
-          flags: go.ValueFlag.Pointer | 0, // WARN - Add proper value flag definition
+          flags: go.ValueFlag.Pointer | go.ValueFlag.FuncBody, // WARN - Add proper value flag definition
         };
       });
     }
@@ -305,25 +324,25 @@ export class GoBuilder {
   public CreateIfNode(
     condition: bigint,
     body: bigint[],
-    _else: bigint[],
+    _else?: bigint[],
   ): Node {
     return {
       opcode: go.Opcode.If,
       fields: [
         {
           value: condition,
-          flags: go.ValueFlag.Pointer | 0, // WARN - Add proper value flag definition
+          flags: go.ValueFlag.Pointer | go.ValueFlag.IfConditon, // WARN - Add proper value flag definition
         },
         ...body.map((v) => {
           return {
             value: v,
-            flags: go.ValueFlag.Pointer | 0, // WARN - Add proper value flag definition
+            flags: go.ValueFlag.Pointer | go.ValueFlag.IfBody, // WARN - Add proper value flag definition
           };
         }),
-        ..._else.map((v) => {
+        ...(_else || []).map((v) => {
           return {
             value: v,
-            flags: go.ValueFlag.Pointer | 0, // WARN - Add proper value flag definition
+            flags: go.ValueFlag.Pointer | go.ValueFlag.IfElse, // WARN - Add proper value flag definition
           };
         }),
       ],
@@ -740,11 +759,21 @@ export class GoBuilder {
       flags: go.NodeFlag.NodeBinary,
       left: {
         value: a,
-        flags: typeof a === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+        flags:
+          typeof a === "bigint"
+            ? go.ValueFlag.Pointer
+            : this.isValidNumber(a)
+              ? go.ValueFlag.None
+              : go.ValueFlag.Quotation,
       },
       right: {
         value: b,
-        flags: typeof b === "bigint" ? go.ValueFlag.Pointer : go.ValueFlag.None,
+        flags:
+          typeof b === "bigint"
+            ? go.ValueFlag.Pointer
+            : this.isValidNumber(b)
+              ? go.ValueFlag.None
+              : go.ValueFlag.Quotation,
       },
     };
   }
@@ -1091,7 +1120,7 @@ export class GoBuilder {
 
   public Recover(): Node {
     return {
-      opcode: go.Opcode.Panic,
+      opcode: go.Opcode.Recover,
       flags: go.NodeFlag.None,
     };
   }
@@ -1112,7 +1141,7 @@ export class GoBuilder {
   public New(_type: Type): Node {
     return {
       // WARN - NEEDS ATTENTION
-      opcode: go.Opcode.Panic,
+      opcode: go.Opcode.New,
       flags: go.NodeFlag.NodeUnary,
       value: {
         value: 0n,
@@ -1272,52 +1301,129 @@ export class GoBuilder {
     return hash >>> 0;
   }
 
-  private SetString(s: string): number {
+  public SetString(s: string): number {
     const hash = this.HashString(s);
 
     this.stringlut.set(hash, s);
     return hash;
   }
 
+  public SetType(t: TypeDef): number {
+    const hash = this.HashString(t.id);
+    if (this.typelut.has(hash)) return hash;
+
+    let typeOffset: fb.Offset = 0;
+    switch (t.base) {
+      case "func":
+        typeOffset = this.CreateFuncType(t);
+    }
+
+    //this.buildMutex.acquire();
+
+    program.TypeDef.startTypeDef(this.builder);
+    program.TypeDef.addBase(this.builder, this.HashString(t.base));
+    program.TypeDef.addId(this.builder, hash);
+    program.TypeDef.addTypeType(this.builder, program.Type.FuncType);
+    program.TypeDef.addType(this.builder, typeOffset);
+    return hash;
+  }
+
+  private CreateFuncType(t: TypeDef): fb.Offset {
+    if (!("params" in t)) return 0;
+
+    //this.buildMutex.acquire();
+    let method: fb.Offset = 0;
+
+    if (t.method)
+      method = program.Pair.createPair(
+        this.builder,
+        this.SetString(t.method[0]),
+        this.SetType(t.method[1]),
+      );
+
+    let paramsList: fb.Offset[] = [];
+    for (const [val, ty] of t.results) {
+      paramsList.push(
+        program.Pair.createPair(
+          this.builder,
+          this.SetString(val),
+          this.SetType(ty),
+        ),
+      );
+    }
+    const params = program.FuncType.createResultsVector(
+      this.builder,
+      paramsList,
+    );
+
+    let resultsList: fb.Offset[] = [];
+    for (const [val, ty] of t.results) {
+      resultsList.push(
+        program.Pair.createPair(
+          this.builder,
+          this.SetString(val),
+          this.SetType(ty),
+        ),
+      );
+    }
+    const results = program.FuncType.createResultsVector(
+      this.builder,
+      resultsList,
+    );
+
+    program.FuncType.startFuncType(this.builder);
+    program.FuncType.addParams(this.builder, params);
+    program.FuncType.addResults(this.builder, results);
+    program.FuncType.addMethod(this.builder, method);
+    const funcType = program.FuncType.endFuncType(this.builder);
+    //this.buildMutex.release();
+    return funcType;
+  }
+
   private CreateStringLUT(): fb.Offset {
+    // Convert to array and sort numerically by key
+    const entries = [...this.stringlut.entries()].sort((a, b) => a[0] - b[0]);
+
     const offsets: fb.Offset[] = [];
-    for (const [k, v] of this.stringlut) {
+
+    for (const [k, v] of entries) {
       const value = this.builder.createString(v);
 
       program.StringEntry.startStringEntry(this.builder);
-      program.StringEntry.addKey(this.builder, k);
+      program.StringEntry.addKey(this.builder, k); // int key
       program.StringEntry.addValue(this.builder, value);
       const entry = program.StringEntry.endStringEntry(this.builder);
+
       offsets.push(entry);
     }
+
     return program.App.createLutVector(this.builder, offsets);
   }
 
   private CreateIndexedNode(node: Node): fb.Offset {
     let fields: fb.Offset[] = [];
-    if (node.fields) {
-      for (const value of node.fields) {
-        program.NodeValue.startNodeValue(this.builder);
-        //schema.NodeValue.addType(this.builder, this.GetString(value.type || "")); // WARN - Implement types
-        if (typeof value.value == "string")
-          program.NodeValue.addValue(
-            this.builder,
-            BigInt(this.SetString(value.value || "")),
-          );
-        else program.NodeValue.addValue(this.builder, value.value || 0n);
 
-        program.NodeValue.addFlags(this.builder, value.flags);
-        const offset = program.NodeValue.endNodeValue(this.builder);
-        fields.push(offset);
-      }
-      const fieldsVector = program.IndexedNode.createFieldsVector(
-        this.builder,
-        fields,
-      );
-      program.IndexedNode.addFields(this.builder, fieldsVector);
+    for (const value of node.fields || []) {
+      program.NodeValue.startNodeValue(this.builder);
+      //schema.NodeValue.addType(this.builder, this.GetString(value.type || "")); // WARN - Implement types
+      if (typeof value.value == "string")
+        program.NodeValue.addValue(
+          this.builder,
+          BigInt(this.SetString(value.value || "")),
+        );
+      else program.NodeValue.addValue(this.builder, value.value || 0n);
+
+      program.NodeValue.addFlags(this.builder, value.flags);
+      const offset = program.NodeValue.endNodeValue(this.builder);
+      fields.push(offset);
     }
+    const fieldsVector = program.IndexedNode.createFieldsVector(
+      this.builder,
+      fields,
+    );
     program.IndexedNode.startIndexedNode(this.builder);
     program.IndexedNode.addId(this.builder, this.SetString(node.id || ""));
+    program.IndexedNode.addFields(this.builder, fieldsVector);
 
     return program.IndexedNode.endIndexedNode(this.builder);
   }
@@ -1426,7 +1532,7 @@ export class GoBuilder {
       this.builder.clear();
       const nodes: fb.Offset[] = [];
       for (const [id, [node, offset]] of this.nodes) {
-        const nodeOffset = this.buildNode(node);
+        const nodeOffset = this.buildNode(node, id);
         nodes.push(nodeOffset);
       }
       const nodesVector = program.App.createNodesVector(this.builder, nodes);

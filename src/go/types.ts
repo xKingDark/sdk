@@ -125,7 +125,7 @@ export class Struct {
     name: string,
     type: TypeDef,
     tag?: string,
-    value?: string
+    value?: string,
   ): this {
     //! Add regex check here
 
@@ -269,7 +269,7 @@ export function Func(
   name: string,
   results: [string, TypeDef][],
   params: [string, TypeDef][],
-  method?: [string, TypeDef]
+  method?: [string, TypeDef],
 ): FuncType {
   return {
     base: Kind.FUNC,
@@ -290,7 +290,7 @@ export function Ptr(def: TypeDef): PointerType {
 
 export function Chan(
   def: TypeDef,
-  dir: ChanDir = ChanDir.Bidirectional
+  dir: ChanDir = ChanDir.Bidirectional,
 ): ChanType {
   return {
     base: Kind.CHANNEL,
