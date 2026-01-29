@@ -1,5 +1,6 @@
 import { fstat, writeFile } from "fs";
-import { GoBuilder, GoBuilderOptions, NodeId, FuncDef } from "./go/builder";
+import { GoBuilder, GoBuilderOptions, FuncDef } from "./go/builder";
+import { NodeId } from "./ibuilder";
 import {
   Func,
   PointerType,
