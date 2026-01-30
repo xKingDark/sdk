@@ -638,60 +638,78 @@ export class GoBuilder extends IBuilder<go.Opcode, go.NodeFlag, go.ValueFlag> {
     return this.createIndexed(go.Opcode.Println, undefined, this.makePtrFields(params));
   }
 
-  private HashString(s: string): number {
-    // cite: https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
-    let hash = 0x811c9dc5; // FNV-1a 32-bit offset basis
-
-    for (let i = 0; i < s.length; i++) {
-      hash ^= s.charCodeAt(i);
-      hash = (hash * 0x01000193) >>> 0; // FNV prime and force 32-bit
-    }
-
-    return hash >>> 0;
-  }
-
-  public SetString(s: string): number {
-    const hash = this.HashString(s);
-
-    this.stringlut.set(hash, s);
-    return hash;
-  }
-
-  public SetType(t: TypeDef): number {
-    const hash = this.HashString(t.id);
-    if (this.typelut.has(hash)) return hash;
-
-    let typeOffset: fb.Offset = 0;
+  private TypeSignature(t: TypeDef): string {
     switch (t.base) {
-      case "func":
+      case Kind.FUNC: {
+        const f = t as FuncType;
+
+        const params = f.params
+          .map(([name, ty]) => `${name}:${this.TypeSignature(ty)}`)
+          .join(",");
+
+        const results = f.results
+          .map(([name, ty]) => `${name}:${this.TypeSignature(ty)}`)
+          .join(",");
+
+        return `func(${params})->(${results})`;
+      }
+
+      default:
+        return `${t.base}:${t.id}`;
+    }
+  }
+
+  private SerializeType(t: TypeDef): fb.Offset {
+    let typeOffset: fb.Offset = 0;
+    let typeEnum = program.Type.NONE;
+
+    switch (t.base) {
+      case Kind.FUNC:
         typeOffset = this.CreateFuncType(t);
+        typeEnum = program.Type.FuncType;
+        break;
     }
 
-    //this.buildMutex.acquire();
+    const idStringOffset = this.builder.createString(t.id);
 
     program.TypeDef.startTypeDef(this.builder);
     program.TypeDef.addBase(this.builder, this.HashString(t.base));
-    program.TypeDef.addId(this.builder, hash);
-    program.TypeDef.addTypeType(this.builder, program.Type.FuncType);
+    program.TypeDef.addId(this.builder, idStringOffset);
+    program.TypeDef.addTypeType(this.builder, typeEnum);
     program.TypeDef.addType(this.builder, typeOffset);
+
+    return program.TypeDef.endTypeDef(this.builder);
+  }
+
+  public SetType(t: TypeDef): number {
+    const sig = this.TypeSignature(t);
+    const hash = this.HashString(sig);
+
+    if (this.typelut.has(hash))
+      return hash;
+
+    this.typelut.set(hash, this.SerializeType(t));
     return hash;
   }
 
+
   private CreateFuncType(t: TypeDef): fb.Offset {
-    if (!("params" in t)) return 0;
+    if (t.base !== Kind.FUNC)
+      return 0;
 
     //this.buildMutex.acquire();
+    const func = t as FuncType;
     let method: fb.Offset = 0;
 
-    if (t.method)
+    if (func.method)
       method = program.Pair.createPair(
         this.builder,
-        this.SetString(t.method[0]),
-        this.SetType(t.method[1]),
+        this.SetString(func.method[0]),
+        this.SetType(func.method[1]),
       );
 
     let paramsList: fb.Offset[] = [];
-    for (const [val, ty] of t.results) {
+    for (const [val, ty] of func.params) {
       paramsList.push(
         program.Pair.createPair(
           this.builder,
@@ -700,13 +718,14 @@ export class GoBuilder extends IBuilder<go.Opcode, go.NodeFlag, go.ValueFlag> {
         ),
       );
     }
-    const params = program.FuncType.createResultsVector(
+
+    const params = program.FuncType.createParamsVector(
       this.builder,
       paramsList,
     );
 
     let resultsList: fb.Offset[] = [];
-    for (const [val, ty] of t.results) {
+    for (const [val, ty] of func.results) {
       resultsList.push(
         program.Pair.createPair(
           this.builder,
@@ -724,42 +743,30 @@ export class GoBuilder extends IBuilder<go.Opcode, go.NodeFlag, go.ValueFlag> {
     program.FuncType.addParams(this.builder, params);
     program.FuncType.addResults(this.builder, results);
     program.FuncType.addMethod(this.builder, method);
+
     const funcType = program.FuncType.endFuncType(this.builder);
     //this.buildMutex.release();
     return funcType;
   }
 
-  protected CreateStringLUT(): fb.Offset {
-    // Convert to array and sort numerically by key
-    const entries = Array.from(this.stringlut)
-      .sort(([a], [b]) => a - b);
-
-    const offsets = entries.map(([key, value]) => {
-      const valueOffset = this.builder.createString(value);
-
-      program.StringEntry.startStringEntry(this.builder);
-      program.StringEntry.addKey(this.builder, key); // int key
-      program.StringEntry.addValue(this.builder, valueOffset);
-      return program.StringEntry.endStringEntry(this.builder);
-    });
-
-    return program.App.createLutVector(this.builder, offsets);
-  }
-
   private buildNodeValue(v: GoNodeValue): fb.Offset {
-    program.NodeValue.startNodeValue(this.builder);
-    /* schema.NodeValue.addType(
-      this.builder,
-      this.GetString(v.type || "")
-    ); */ // WARN - Implement types
-    
-    if (typeof v.value == "string")
-      program.NodeValue.addValue(
-        this.builder,
-        BigInt(this.SetString(v.value || "")),
-      );
-    else program.NodeValue.addValue(this.builder, v.value || 0n);
+    let typeHash: number | undefined;
+    if (v.type !== undefined) {
+      typeHash = this.SetType(v.type);
+    }
 
+    let valueOffset: NodeId;
+    if (typeof v.value === "string") {
+      valueOffset = BigInt(this.SetString(v.value));
+    } else valueOffset = v.value ?? 0n;
+    
+    program.NodeValue.startNodeValue(this.builder);
+
+    if (typeHash !== void 0) {
+      program.NodeValue.addType(this.builder, typeHash);
+    }
+    
+    program.NodeValue.addValue(this.builder, valueOffset);
     program.NodeValue.addFlags(this.builder, v.flags);
     return program.NodeValue.endNodeValue(this.builder);
   }

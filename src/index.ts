@@ -10,6 +10,7 @@ import {
   TypeDef,
   Type,
   String,
+  Array,
   ArrayType,
   StructType,
   FuncType,
@@ -77,21 +78,31 @@ for (let i = 0; i < 1; i++) {
   builder.ConnectNodes(varId, IfId);
   const mainFuncType = Func("main", [], []);
 
-  let body: bigint[] = [];
-  for (let i = 0; i < 10; i++) {
-    builder.SetNode(builder.CreateCallNode("fmt.Println", ["Hello, world!"]));
+  let body: NodeId[] = [];
+  for (let i = 0; i < 5; i++) {
+    const varValue = builder.SetNode(
+      builder.CreateVarValueNode("N" + i, Int("Test", 32), i.toString()),
+    );
+
+    const varId = builder.SetNode(builder.CreateVarNode(varValue));
+    const callId = builder.SetNode(builder.CreateCallNode("fmt.Println", [varId]));
+    body.push(varId);
   }
 
-  //let params: bigint[] = [BigInt(builder.SetString("Hello, world"))];
+  const paramNode = builder.CreateConstValueNode(
+    "meow", String("Test"), "something"
+  );
+
+  let params: NodeId[] = [ builder.SetNode(paramNode) ];
 
   const mainFuncDef: FuncDef = {
     type: mainFuncType,
-    //params,
+    params,
     body,
   };
   const mainFuncNode = builder.CreateFuncNode(mainFuncDef);
   const mainFuncId = builder.SetNode(mainFuncNode);
-  builder.ConnectNodes(importId, mainFuncId);
+  builder.ConnectNodes(IfId, mainFuncId);
 }
 
 // const stringArray: ArrayType = Array(String(), [10]);

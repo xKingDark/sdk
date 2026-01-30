@@ -48,11 +48,48 @@ export abstract class IBuilder<
   };
 
   protected abstract buildNode(node: INode<TOpcode>, id: NodeId): fb.Offset;
-  protected abstract CreateStringLUT(): fb.Offset;
+
+  private CreateStringLUT(): fb.Offset {
+    // Convert to array and sort numerically by key
+    const entries = Array.from(this.stringlut)
+      .sort(([a], [b]) => a - b);
+
+    const offsets: fb.Offset[] = [];
+
+    for (const [key, value] of entries) {
+      const valueOffset = this.builder.createString(value);
+
+      program.StringEntry.startStringEntry(this.builder);
+      program.StringEntry.addKey(this.builder, key);
+      program.StringEntry.addValue(this.builder, valueOffset);
+
+      offsets.push(program.StringEntry.endStringEntry(this.builder));
+    }
+  
+    return program.App.createLutVector(this.builder, offsets);
+  };
+
+  private CreateTypeLUT(): fb.Offset {
+    // Convert to array and sort numerically by key
+    const entries = Array.from(this.typelut.entries())
+      .sort(([a], [b]) => a - b);
+
+    const offsets: fb.Offset[] = [];
+
+    for (const [key, typeOffset] of entries) {
+      program.TypeEntry.startTypeEntry(this.builder);
+      program.TypeEntry.addKey(this.builder, key);
+      program.TypeEntry.addValue(this.builder, typeOffset);
+
+      offsets.push(program.TypeEntry.endTypeEntry(this.builder));
+    }
+
+    return program.App.createTypesVector(this.builder, offsets);
+  };
+
 
   public abstract SetNode(node: INode<TOpcode>, id?: NodeId): NodeId;
   public abstract DeleteNode(id: NodeId, recursive?: boolean): void;
-
 
   public PrintNodes(): void {
     for (const [id, [node, offset]] of this.nodes) {
@@ -68,6 +105,25 @@ export abstract class IBuilder<
     }
   }
 
+  protected HashString(s: string): number {
+    // cite: https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+    let hash = 0x811c9dc5; // FNV-1a 32-bit offset basis
+  
+    for (let i = 0; i < s.length; i++) {
+      hash ^= s.charCodeAt(i);
+      hash = (hash * 0x01000193) >>> 0; // FNV prime and force 32-bit
+    }
+  
+    return hash >>> 0;
+  }
+  
+  public SetString(s: string): number {
+    const hash = this.HashString(s);
+  
+    this.stringlut.set(hash, s);
+    return hash;
+  }
+
   // Export / Rebuild
     
   private buildApp(
@@ -77,10 +133,8 @@ export abstract class IBuilder<
   ): Uint8Array {
     const nodesVector = program.App.createNodesVector(this.builder, nodeOffsets);
     
-    let lut: fb.Offset = 0;
-    if (includeLUT) {
-      lut = this.CreateStringLUT();
-    }
+    const stringLut: fb.Offset = includeLUT ? this.CreateStringLUT() : 0;
+    const typeLut: fb.Offset = this.CreateTypeLUT();
     
     const name = this.builder.createString(
       this.builderOptions.name ?? "Unnamed Program",
@@ -90,9 +144,10 @@ export abstract class IBuilder<
     program.App.addNodes(this.builder, nodesVector);
     
     if (includeLUT) {
-      program.App.addLut(this.builder, lut);
+      program.App.addLut(this.builder, stringLut);
     }
     
+    program.App.addTypes(this.builder, typeLut);
     program.App.addFlags(this.builder, flags);
     program.App.addName(this.builder, name);
     
@@ -113,7 +168,7 @@ export abstract class IBuilder<
   public async Rebuild(flags: number = 0): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
       this.builder.clear();
-    
+
       const nodeOffsets: fb.Offset[] = [];
       for (const [id, [node, offset]] of this.nodes) {
         const nodeOffset = this.buildNode(node, id);
@@ -130,5 +185,6 @@ export abstract class IBuilder<
     this.builder.clear();
     this.nodes.clear();
     this.stringlut.clear();
+    this.typelut.clear();
   }
 };
