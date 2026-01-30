@@ -247,7 +247,7 @@ export class GoBuilder extends IBuilder<go.Opcode, go.NodeFlag, go.ValueFlag> {
       opcode: go.Opcode.VarValue,
       flags: go.NodeFlag.NodeBinary,
 
-      left: this.makeValue(value, type),
+      left: this.makeValue(name, type),
       right: this.makeValue(value),
     };
   }
@@ -788,8 +788,8 @@ export class GoBuilder extends IBuilder<go.Opcode, go.NodeFlag, go.ValueFlag> {
     }
 
     program.BinaryNode.startBinaryNode(this.builder);
-    program.UnaryNode.addValue(this.builder, left);
-    program.UnaryNode.addValue(this.builder, right);
+    program.BinaryNode.addLeft(this.builder, left);
+    program.BinaryNode.addRight(this.builder, right);
     return program.BinaryNode.endBinaryNode(this.builder);
   }
 
