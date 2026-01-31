@@ -1,7 +1,6 @@
 import * as fb from "flatbuffers";
 import * as go from "./golang";
 import * as program from "../program";
-//import "async-mutex";
 import { FuncType, Kind, Type, TypeDef } from "./types";
 import {
   NodeId,
@@ -697,7 +696,6 @@ export class GoBuilder extends IBuilder<go.Opcode, go.NodeFlag, go.ValueFlag> {
     if (t.base !== Kind.FUNC)
       return 0;
 
-    //this.buildMutex.acquire();
     const func = t as FuncType;
     let method: fb.Offset = 0;
 
@@ -745,7 +743,6 @@ export class GoBuilder extends IBuilder<go.Opcode, go.NodeFlag, go.ValueFlag> {
     program.FuncType.addMethod(this.builder, method);
 
     const funcType = program.FuncType.endFuncType(this.builder);
-    //this.buildMutex.release();
     return funcType;
   }
 
