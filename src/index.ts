@@ -146,7 +146,7 @@ function sleep(ms: number): Promise<void> {
     console.log(`size: ${formatBytes(output.length)}`);
     let { signal } = new AbortController();
     writeFile(
-      "../go-compiler/nodes.opt",
+      "./nodes.opt",
       output,
       { signal },
       (err) => {
